@@ -2,6 +2,14 @@
 
 A modern code snippet manager designed for developers who value organization and quick access to their code libraries.
 
+## The Problem
+
+As developers, we constantly Google the same patterns, copy code from old projects, and struggle to remember that perfect regex from last month. Existing solutions like GitHub Gists lack organization, and IDE snippets are locked to one editor.
+
+## The Solution
+
+Fragments provides a fast, searchable library for your code snippets with smart tagging, folder organization, and a clean web interface. Think of it as your personal Stack Overflow that learns from your actual code patterns.
+
 ## Features
 
 - 🔍 **Full-text search** - Find snippets instantly across titles, content, and tags
@@ -13,9 +21,9 @@ A modern code snippet manager designed for developers who value organization and
 
 ## Tech Stack
 
-- **Backend**: Go with standard library HTTP server
-- **Database**: PostgreSQL (planned)
+- **Backend**: Go with Chi router and SQLite
 - **Frontend**: React + TypeScript (planned)
+- **Hosting**: Railway (API) + Vercel (Frontend)
 
 ## Development
 
