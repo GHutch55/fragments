@@ -51,7 +51,7 @@ fragments/
 ## Roadmap
 
 - [x] Basic server setup
-- [ ] Database schema and models
+- [x] Database schema and models
 - [ ] REST API endpoints
 - [ ] Search functionality
 - [ ] Web interface
