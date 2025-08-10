@@ -50,10 +50,8 @@ func main() {
 			r.Post("/", userHandler.CreateUser)
 			r.Get("/{id}", userHandler.GetUser)
 			r.Get("/", userHandler.GetUsers)
-
-			// Future user routes:
-			// r.Put("/{id}", userHandler.UpdateUser)  // PUT /api/users/123
-			// r.Delete("/{id}", userHandler.DeleteUser) // DELETE /api/users/123
+			r.Delete("/{id}", userHandler.DeleteUser)
+			r.Put("/{id}", userHandler.UpdateUser)
 		})
 
 		// Future routes for other resources:

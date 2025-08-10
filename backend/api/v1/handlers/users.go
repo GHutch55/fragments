@@ -212,6 +212,90 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userIDstr := chi.URLParam(r, "id")
+	if userIDstr == "" {
+		h.sendError(w, "User ID is required", http.StatusBadRequest)
+		return
+	}
+
+	ID, err := strconv.ParseInt(userIDstr, 10, 64)
+	if err != nil || ID <= 0 {
+		h.sendError(w, "Invalid User ID", http.StatusBadRequest)
+		return
+	}
+
+	delErr := database.DeleteUser(h.DB, ID)
+	if delErr != nil {
+		// Check for user not found error
+		if errors.Is(delErr, database.ErrNoUserError) {
+			h.sendError(w, "User not found", http.StatusNotFound)
+			return
+		}
+		// Check for database errors
+		if errors.Is(delErr, database.ErrDatabaseError) {
+			h.sendError(w, "Unable to process request at this time", http.StatusInternalServerError)
+			return
+		}
+
+		h.sendError(w, "An unexpected error occurred", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userIDStr := chi.URLParam(r, "id")
+	if userIDStr == "" {
+		h.sendError(w, "User ID is required", http.StatusBadRequest)
+		return
+	}
+
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil || userID <= 0 {
+		h.sendError(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	var updateUser models.User
+	err = json.NewDecoder(r.Body).Decode(&updateUser)
+	if err != nil {
+		h.sendError(w, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.validateUser(&updateUser); err != nil {
+		h.sendError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = database.UpdateUser(h.DB, userID, &updateUser)
+	if err != nil {
+		if errors.Is(err, database.ErrNoUserError) {
+			h.sendError(w, "User not found", http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, database.ErrUsernameExists) {
+			h.sendError(w, "Username already exists", http.StatusConflict)
+			return
+		}
+		if errors.Is(err, database.ErrDatabaseError) {
+			h.sendError(w, "Unable to process request at this time", http.StatusInternalServerError)
+			return
+		}
+		h.sendError(w, "An unexpected error occurred", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(updateUser)
+}
+
 // sendError sends a JSON error response
 func (h *UserHandler) sendError(w http.ResponseWriter, message string, statusCode int) {
 	w.WriteHeader(statusCode)
