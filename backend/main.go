@@ -26,6 +26,7 @@ func main() {
 
 	// Create handler with database connection
 	userHandler := &handlers.UserHandler{DB: db}
+	snippetHandler := &handlers.SnippetHandler{DB: db}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -54,8 +55,15 @@ func main() {
 			r.Put("/{id}", userHandler.UpdateUser)
 		})
 
+		r.Route("/snippets", func(r chi.Router) {
+			r.Post("/", snippetHandler.CreateSnippet)
+			r.Get("/{id}", snippetHandler.GetSnippet)
+			r.Get("/", snippetHandler.GetSnippets)
+			r.Delete("/{id}", snippetHandler.DeleteSnippet)
+			r.Put("/{id}", snippetHandler.UpdateSnippet)
+		})
+
 		// Future routes for other resources:
-		// r.Route("/snippets", func(r chi.Router) { ... })
 		// r.Route("/folders", func(r chi.Router) { ... })
 		// r.Route("/tags", func(r chi.Router) { ... })
 	})
