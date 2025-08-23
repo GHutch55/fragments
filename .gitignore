@@ -1,1 +1,8 @@
 backend/.env
+
+# SQLite database files (anywhere in project)
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.sqlite
+**/*.sqlite3
