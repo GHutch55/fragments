@@ -52,6 +52,7 @@ fragments/
 
 - [x] Basic server setup
 - [x] Database schema and models
+- [x] JWT-Based authentication
 - [ ] REST API endpoints
 - [ ] Search functionality
 - [ ] Web interface
@@ -60,8 +61,8 @@ fragments/
 
 ## Contributing
 
-This is currently a personal project, but suggestions and feedback are welcome! Please open an issue to discuss any changes.
+This is currently a personal + learning project, but suggestions and feedback are welcome! Please open an issue to discuss any changes.
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License - see [LICENSE] file for details.
