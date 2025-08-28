@@ -65,4 +65,4 @@ This is currently a personal + learning project, but suggestions and feedback ar
 
 ## License
 
-MIT License - see [LICENSE] file for details.
+MIT License - see [LICENSE](LICENSE) file for details.
