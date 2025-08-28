@@ -4,15 +4,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"html"
 	"net/http"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/GHutch55/fragments/backend/api/v1/database"
+	"github.com/GHutch55/fragments/backend/api/v1/middleware"
 	"github.com/GHutch55/fragments/backend/api/v1/models"
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // UserHandler holds the database connection
@@ -20,135 +22,197 @@ type UserHandler struct {
 	DB *sql.DB
 }
 
-// ErrorResponse represents a JSON error response
-type ErrorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message,omitempty"`
-}
-
-// CreateUser handles user creation requests
-func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
-	// Set response content type
+// GetCurrentUser gets the authenticated user's information
+func (h *UserHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var newUser models.User
-	err := json.NewDecoder(r.Body).Decode(&newUser)
-	if err != nil {
-		h.sendError(w, "Invalid JSON format", http.StatusBadRequest)
+	// Use consistent context access
+	user, ok := middleware.GetUserFromContext(r.Context())
+	if !ok {
+		SendError(w, "Authentication required", http.StatusUnauthorized)
 		return
 	}
 
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(user)
+}
+
+// UpdateCurrentUser updates the authenticated user's information
+func (h *UserHandler) UpdateCurrentUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Use consistent context access
+	user, ok := middleware.GetUserFromContext(r.Context())
+	if !ok {
+		SendError(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
+	var updateUser models.User
+	if err := json.NewDecoder(r.Body).Decode(&updateUser); err != nil {
+		SendError(w, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.validateUser(&updateUser); err != nil {
+		SendError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err := database.UpdateUser(h.DB, user.ID, &updateUser)
+	if err != nil {
+		if database.IsUserNotFoundError(err) {
+			SendError(w, "User not found", http.StatusNotFound)
+			return
+		}
+		if database.IsUsernameExistsError(err) {
+			SendError(w, "Username already exists", http.StatusConflict)
+			return
+		}
+		if errors.Is(err, database.ErrDatabaseError) {
+			SendError(w, "Unable to process request at this time", http.StatusInternalServerError)
+			return
+		}
+		SendError(w, "An unexpected error occurred", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(updateUser)
+}
+
+// DeleteCurrentUser deletes the authenticated user's account
+func (h *UserHandler) DeleteCurrentUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Use consistent context access
+	user, ok := middleware.GetUserFromContext(r.Context())
+	if !ok {
+		SendError(w, "Authentication required", http.StatusUnauthorized)
+		return
+	}
+
+	err := database.DeleteUser(h.DB, user.ID)
+	if err != nil {
+		if database.IsUserNotFoundError(err) {
+			SendError(w, "User not found", http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, database.ErrDatabaseError) {
+			SendError(w, "Unable to process request at this time", http.StatusInternalServerError)
+			return
+		}
+		SendError(w, "An unexpected error occurred", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// CreateUser handles user creation requests (for admin use)
+func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var newUser struct {
+		Username    string  `json:"username"`
+		DisplayName *string `json:"display_name,omitempty"`
+		Password    string  `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&newUser); err != nil {
+		SendError(w, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	// Validate password
+	if err := h.validatePassword(newUser.Password); err != nil {
+		SendError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Create user model for validation
+	userModel := models.User{
+		Username:    newUser.Username,
+		DisplayName: newUser.DisplayName,
+	}
+
 	// Validate the user data
-	if err := h.validateUser(&newUser); err != nil {
-		h.sendError(w, err.Error(), http.StatusBadRequest)
+	if err := h.validateUser(&userModel); err != nil {
+		SendError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Hash the password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newUser.Password), bcrypt.DefaultCost)
+	if err != nil {
+		SendError(w, "Unable to process password", http.StatusInternalServerError)
 		return
 	}
 
 	// Create the user in the database
-	err = database.CreateUser(h.DB, &newUser)
+	userWithPassword := &database.UserWithPassword{
+		User:     userModel,
+		Password: string(hashedPassword),
+	}
+
+	err = database.CreateUserWithPassword(h.DB, userWithPassword)
 	if err != nil {
-		if errors.Is(err, database.ErrUsernameExists) {
-			h.sendError(w, "Username already exists", http.StatusConflict)
+		if database.IsUsernameExistsError(err) {
+			SendError(w, "Username already exists", http.StatusConflict)
 			return
 		}
 		if errors.Is(err, database.ErrDatabaseError) {
-			h.sendError(w, "Unable to process request at this time", http.StatusInternalServerError)
+			SendError(w, "Unable to process request at this time", http.StatusInternalServerError)
 			return
 		}
-		// Fallback for unexpected errors
-		h.sendError(w, "An unexpected error occurred", http.StatusInternalServerError)
+		SendError(w, "An unexpected error occurred", http.StatusInternalServerError)
 		return
 	}
 
-	// Success - return the created user
+	// Return user without password
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(newUser)
+	json.NewEncoder(w).Encode(userWithPassword.User)
 }
 
-// validateUser validates the user data before database operations
-func (h *UserHandler) validateUser(user *models.User) error {
-	// Validate username
-	if strings.TrimSpace(user.Username) == "" {
-		return errors.New("username is required")
-	}
-
-	// Clean up username (remove extra whitespace)
-	user.Username = strings.TrimSpace(user.Username)
-
-	// Username validation rules
-	if utf8.RuneCountInString(user.Username) < 3 {
-		return errors.New("username must be at least 3 characters long")
-	}
-
-	if utf8.RuneCountInString(user.Username) > 50 {
-		return errors.New("username must be less than 50 characters")
-	}
-
-	// Basic username character validation (alphanumeric + underscore/hyphen)
-	for _, r := range user.Username {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || r == '_' || r == '-') {
-			return errors.New("username can only contain letters, numbers, underscores, and hyphens")
-		}
-	}
-
-	// Validate display_name (optional but has limits if provided)
-	if user.DisplayName != nil {
-		*user.DisplayName = strings.TrimSpace(*user.DisplayName)
-		if utf8.RuneCountInString(*user.DisplayName) > 100 {
-			return errors.New("display name must be less than 100 characters")
-		}
-		// If display_name is empty after trimming, set it to nil
-		if *user.DisplayName == "" {
-			user.DisplayName = nil
-		}
-	}
-
-	return nil
-}
-
+// GetUser retrieves a single user by ID (admin use)
 func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	userIDStr := chi.URLParam(r, "id")
 	if userIDStr == "" {
-		h.sendError(w, "User ID is required", http.StatusBadRequest)
+		SendError(w, "User ID is required", http.StatusBadRequest)
 		return
 	}
 
 	userID, err := strconv.ParseInt(userIDStr, 10, 64)
-	if err != nil {
-		h.sendError(w, "Invalid user ID", http.StatusBadRequest)
+	if err != nil || userID <= 0 {
+		SendError(w, "Invalid user ID", http.StatusBadRequest)
 		return
 	}
 
 	var gotUser models.User
 	err = database.GetUser(h.DB, userID, &gotUser)
 	if err != nil {
-		// Check if it's a "user not found" error
-		if strings.Contains(err.Error(), "not found") {
-			h.sendError(w, "User not found", http.StatusNotFound)
+		if database.IsUserNotFoundError(err) {
+			SendError(w, "User not found", http.StatusNotFound)
 			return
 		}
-		// Check if it's a database error
 		if errors.Is(err, database.ErrDatabaseError) {
-			h.sendError(w, "Unable to process request at this time", http.StatusInternalServerError)
+			SendError(w, "Unable to process request at this time", http.StatusInternalServerError)
 			return
 		}
-		// Fallback for unexpected errors
-		h.sendError(w, "An unexpected error occurred", http.StatusInternalServerError)
+		SendError(w, "An unexpected error occurred", http.StatusInternalServerError)
 		return
 	}
 
-	// Success
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(gotUser)
 }
 
+// GetUsers retrieves users with pagination and search (admin use)
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Extract query parameters
 	query := r.URL.Query()
 
 	// Parse page parameter
@@ -160,7 +224,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse limit parameter
-	limit := 20 // default
+	limit := 20
 	if limitStr := query.Get("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
 			limit = l
@@ -168,127 +232,81 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get search parameter
-	search := query.Get("search")
+	search := strings.TrimSpace(query.Get("search"))
 
-	// Call your database function using h.DB
 	users, total, err := database.GetUsers(h.DB, page, limit, search)
 	if err != nil {
-		// Check if it's a database error
 		if errors.Is(err, database.ErrDatabaseError) {
-			h.sendError(w, "Unable to process request at this time", http.StatusInternalServerError)
+			SendError(w, "Unable to process request at this time", http.StatusInternalServerError)
 			return
 		}
-		// Fallback for unexpected errors
-		h.sendError(w, "An unexpected error occurred", http.StatusInternalServerError)
+		SendError(w, "An unexpected error occurred", http.StatusInternalServerError)
 		return
 	}
 
 	// Calculate pagination metadata
-	totalPages := (total + limit - 1) / limit // ceiling division
+	totalPages := (total + limit - 1) / limit
 	hasNext := page < totalPages
 	hasPrev := page > 1
 
-	// Create response structure
-	response := map[string]interface{}{
-		"data": users,
-		"pagination": map[string]interface{}{
-			"page":        page,
-			"limit":       limit,
-			"total":       total,
-			"total_pages": totalPages,
-			"has_next":    hasNext,
-			"has_prev":    hasPrev,
+	response := APIResponse{
+		Data: users,
+		Pagination: &PaginationInfo{
+			Page:       page,
+			Limit:      limit,
+			Total:      total,
+			TotalPages: totalPages,
+			HasNext:    hasNext,
+			HasPrev:    hasPrev,
 		},
 	}
 
-	// Success
 	w.WriteHeader(http.StatusOK)
-
-	// Encode and send response
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		fmt.Printf("Error encoding response: %v\n", err)
-		h.sendError(w, "Unable to process request at this time", http.StatusInternalServerError)
-		return
-	}
+	json.NewEncoder(w).Encode(response)
 }
 
-func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	userIDstr := chi.URLParam(r, "id")
-	if userIDstr == "" {
-		h.sendError(w, "User ID is required", http.StatusBadRequest)
-		return
-	}
-
-	ID, err := strconv.ParseInt(userIDstr, 10, 64)
-	if err != nil || ID <= 0 {
-		h.sendError(w, "Invalid User ID", http.StatusBadRequest)
-		return
-	}
-
-	delErr := database.DeleteUser(h.DB, ID)
-	if delErr != nil {
-		// Check for user not found error
-		if errors.Is(delErr, database.ErrNoUserError) {
-			h.sendError(w, "User not found", http.StatusNotFound)
-			return
-		}
-		// Check for database errors
-		if errors.Is(delErr, database.ErrDatabaseError) {
-			h.sendError(w, "Unable to process request at this time", http.StatusInternalServerError)
-			return
-		}
-
-		h.sendError(w, "An unexpected error occurred", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
+// UpdateUser updates an existing user (admin use)
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	userIDStr := chi.URLParam(r, "id")
 	if userIDStr == "" {
-		h.sendError(w, "User ID is required", http.StatusBadRequest)
+		SendError(w, "User ID is required", http.StatusBadRequest)
 		return
 	}
 
 	userID, err := strconv.ParseInt(userIDStr, 10, 64)
 	if err != nil || userID <= 0 {
-		h.sendError(w, "Invalid user ID", http.StatusBadRequest)
+		SendError(w, "Invalid user ID", http.StatusBadRequest)
 		return
 	}
 
 	var updateUser models.User
-	err = json.NewDecoder(r.Body).Decode(&updateUser)
-	if err != nil {
-		h.sendError(w, "Invalid JSON format", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&updateUser); err != nil {
+		SendError(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.validateUser(&updateUser); err != nil {
-		h.sendError(w, err.Error(), http.StatusBadRequest)
+		SendError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	err = database.UpdateUser(h.DB, userID, &updateUser)
 	if err != nil {
-		if errors.Is(err, database.ErrNoUserError) {
-			h.sendError(w, "User not found", http.StatusNotFound)
+		if database.IsUserNotFoundError(err) {
+			SendError(w, "User not found", http.StatusNotFound)
 			return
 		}
-		if errors.Is(err, database.ErrUsernameExists) {
-			h.sendError(w, "Username already exists", http.StatusConflict)
+		if database.IsUsernameExistsError(err) {
+			SendError(w, "Username already exists", http.StatusConflict)
 			return
 		}
 		if errors.Is(err, database.ErrDatabaseError) {
-			h.sendError(w, "Unable to process request at this time", http.StatusInternalServerError)
+			SendError(w, "Unable to process request at this time", http.StatusInternalServerError)
 			return
 		}
-		h.sendError(w, "An unexpected error occurred", http.StatusInternalServerError)
+		SendError(w, "An unexpected error occurred", http.StatusInternalServerError)
 		return
 	}
 
@@ -296,12 +314,135 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(updateUser)
 }
 
-// sendError sends a JSON error response
-func (h *UserHandler) sendError(w http.ResponseWriter, message string, statusCode int) {
-	w.WriteHeader(statusCode)
-	response := ErrorResponse{
-		Error:   http.StatusText(statusCode),
-		Message: message,
+// DeleteUser deletes a user by ID (admin use)
+func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userIDStr := chi.URLParam(r, "id")
+	if userIDStr == "" {
+		SendError(w, "User ID is required", http.StatusBadRequest)
+		return
 	}
-	json.NewEncoder(w).Encode(response)
+
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil || userID <= 0 {
+		SendError(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	err = database.DeleteUser(h.DB, userID)
+	if err != nil {
+		if database.IsUserNotFoundError(err) {
+			SendError(w, "User not found", http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, database.ErrDatabaseError) {
+			SendError(w, "Unable to process request at this time", http.StatusInternalServerError)
+			return
+		}
+		SendError(w, "An unexpected error occurred", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// sanitizeString sanitizes user input to prevent XSS
+func sanitizeString(s string) string {
+	// Escape HTML entities
+	s = html.EscapeString(s)
+	// Trim whitespace
+	s = strings.TrimSpace(s)
+	return s
+}
+
+// validateUser validates the user data before database operations
+func (h *UserHandler) validateUser(user *models.User) error {
+	// Validate username
+	if strings.TrimSpace(user.Username) == "" {
+		return errors.New("username is required")
+	}
+
+	// Sanitize and clean up username
+	user.Username = sanitizeString(user.Username)
+
+	// Username validation rules
+	if utf8.RuneCountInString(user.Username) < 3 {
+		return errors.New("username must be at least 3 characters long")
+	}
+
+	if utf8.RuneCountInString(user.Username) > 50 {
+		return errors.New("username must be less than 50 characters")
+	}
+
+	// Basic username character validation
+	for _, r := range user.Username {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '_' || r == '-') {
+			return errors.New("username can only contain letters, numbers, underscores, and hyphens")
+		}
+	}
+
+	// Validate display_name (optional)
+	if user.DisplayName != nil {
+		*user.DisplayName = sanitizeString(*user.DisplayName)
+		if utf8.RuneCountInString(*user.DisplayName) > 100 {
+			return errors.New("display name must be less than 100 characters")
+		}
+		if *user.DisplayName == "" {
+			user.DisplayName = nil
+		}
+	}
+
+	return nil
+}
+
+// validatePassword validates password requirements
+func (h *UserHandler) validatePassword(password string) error {
+	if len(password) < 12 { // Increased from 8 to 12
+		return errors.New("password must be at least 12 characters long")
+	}
+
+	if len(password) > 128 {
+		return errors.New("password must be less than 128 characters long")
+	}
+
+	// Check for required character types
+	var (
+		hasUpper   = false
+		hasLower   = false
+		hasNumber  = false
+		hasSpecial = false
+	)
+
+	for _, r := range password {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= '0' && r <= '9':
+			hasNumber = true
+		case strings.ContainsRune("!@#$%^&*()_+-=[]{}|;:,.<>?", r):
+			hasSpecial = true
+		}
+	}
+
+	if !hasUpper {
+		return errors.New("password must contain at least one uppercase letter")
+	}
+
+	if !hasLower {
+		return errors.New("password must contain at least one lowercase letter")
+	}
+
+	if !hasNumber {
+		return errors.New("password must contain at least one number")
+	}
+
+	if !hasSpecial {
+		return errors.New("password must contain at least one special character")
+	}
+
+	return nil
 }

@@ -44,7 +44,7 @@ func CreateSnippet(db *sql.DB, snippet *models.Snippet) error {
 	err = tx.QueryRow(
 		query,
 		snippet.UserID,
-		folderID, // Add this parameter
+		folderID,
 		snippet.Title,
 		description,
 		snippet.Content,
@@ -57,10 +57,11 @@ func CreateSnippet(db *sql.DB, snippet *models.Snippet) error {
 		return fmt.Errorf("failed to insert snippet: %w", err)
 	}
 
+	// Handle tags if provided
 	if snippet.Tags != nil && len(*snippet.Tags) > 0 {
 		err = insertSnippetTags(tx, generatedID, snippet.UserID, *snippet.Tags)
 		if err != nil {
-			return fmt.Errorf("failed to insert snippet: %w", err)
+			return fmt.Errorf("failed to insert snippet tags: %w", err)
 		}
 	}
 
@@ -87,16 +88,16 @@ func GetSnippet(db *sql.DB, snippetID int64) (*models.Snippet, error) {
 	var folderID sql.NullInt64
 
 	err := db.QueryRow(query, snippetID).Scan(
-		&snippet.ID,         // 1. id
-		&snippet.UserID,     // 2. user_id
-		&folderID,           // 3. folder_id
-		&snippet.Title,      // 4. title
-		&description,        // 5. description
-		&snippet.Content,    // 6. content
-		&snippet.Language,   // 7. language
-		&snippet.IsFavorite, // 8. is_favorite
-		&snippet.CreatedAt,  // 9. created_at
-		&snippet.UpdatedAt,  // 10. updated_at
+		&snippet.ID,
+		&snippet.UserID,
+		&folderID,
+		&snippet.Title,
+		&description,
+		&snippet.Content,
+		&snippet.Language,
+		&snippet.IsFavorite,
+		&snippet.CreatedAt,
+		&snippet.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -114,33 +115,12 @@ func GetSnippet(db *sql.DB, snippetID int64) (*models.Snippet, error) {
 	}
 
 	// Get tags for this snippet
-	tagQuery := `
-		SELECT t.name 
-		FROM snippet_tags st
-		JOIN tags t ON st.tag_id = t.id  
-		WHERE st.snippet_id = ?
-		ORDER BY t.name`
-
-	rows, err := db.Query(tagQuery, snippetID)
+	tags, err := getSnippetTags(db, snippetID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get snippet tags: %w", err)
 	}
-	defer rows.Close()
 
-	var tags []string
-	for rows.Next() {
-		var tagName string
-		if err := rows.Scan(&tagName); err != nil {
-			return nil, fmt.Errorf("failed to scan tag: %w", err)
-		}
-		tags = append(tags, tagName)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate tags: %w", err)
-	}
-
-	// Attach tags to snippet (only if we have tags)
+	// Only set tags if we have any
 	if len(tags) > 0 {
 		snippet.Tags = &tags
 	}
@@ -148,35 +128,20 @@ func GetSnippet(db *sql.DB, snippetID int64) (*models.Snippet, error) {
 	return &snippet, nil
 }
 
-func GetSnippetsWithOptionalUser(db *sql.DB, page, limit int, userID *int64, search string) ([]models.Snippet, int, error) {
+func GetSnippets(db *sql.DB, page, limit int, userID int64, search string) ([]models.Snippet, int, error) {
 	offset := (page - 1) * limit
 
-	// Build WHERE clause - if userID is nil, get all snippets
-	var whereClause string
-	var args []interface{}
+	// Build WHERE clause and arguments
+	whereClause := "WHERE user_id = ?"
+	args := []interface{}{userID}
 
-	if userID != nil {
-		whereClause = "WHERE user_id = ?"
-		args = append(args, *userID)
-	}
-
-	// Add search condition if provided
 	if search != "" {
-		if userID != nil {
-			// Search with user filter
-			whereClause = `WHERE s.user_id = ? AND s.id IN (
-				SELECT content_id FROM snippets_fts 
-				WHERE snippets_fts MATCH ?
-			)`
-			args = append(args, search)
-		} else {
-			// Search all snippets
-			whereClause = `WHERE s.id IN (
-				SELECT content_id FROM snippets_fts 
-				WHERE snippets_fts MATCH ?
-			)`
-			args = append(args, search)
-		}
+		// Use FTS5 for search
+		whereClause = `WHERE s.user_id = ? AND s.id IN (
+			SELECT content_id FROM snippets_fts 
+			WHERE snippets_fts MATCH ?
+		)`
+		args = append(args, search)
 	}
 
 	// Get total count
@@ -190,7 +155,6 @@ func GetSnippetsWithOptionalUser(db *sql.DB, page, limit int, userID *int64, sea
 	var total int
 	err := db.QueryRow(countQuery, args...).Scan(&total)
 	if err != nil {
-		fmt.Printf("Database error getting snippet count: %v\n", err)
 		return nil, 0, fmt.Errorf("%w: failed to get snippet count", ErrDatabaseError)
 	}
 
@@ -214,7 +178,6 @@ func GetSnippetsWithOptionalUser(db *sql.DB, page, limit int, userID *int64, sea
 
 	rows, err := db.Query(dataQuery, queryArgs...)
 	if err != nil {
-		fmt.Printf("Database error getting snippets: %v\n", err)
 		return nil, 0, fmt.Errorf("%w: failed to get snippets", ErrDatabaseError)
 	}
 	defer rows.Close()
@@ -240,7 +203,6 @@ func GetSnippetsWithOptionalUser(db *sql.DB, page, limit int, userID *int64, sea
 			&snippet.UpdatedAt,
 		)
 		if err != nil {
-			fmt.Printf("Database error scanning snippet row: %v\n", err)
 			return nil, 0, fmt.Errorf("%w: failed to scan snippet data", ErrDatabaseError)
 		}
 
@@ -257,7 +219,6 @@ func GetSnippetsWithOptionalUser(db *sql.DB, page, limit int, userID *int64, sea
 	}
 
 	if err = rows.Err(); err != nil {
-		fmt.Printf("Database error iterating snippets: %v\n", err)
 		return nil, 0, fmt.Errorf("%w: failed to iterate snippets", ErrDatabaseError)
 	}
 
@@ -270,181 +231,23 @@ func GetSnippetsWithOptionalUser(db *sql.DB, page, limit int, userID *int64, sea
 	}
 
 	return snippets, total, nil
-}
-
-func GetSnippets(db *sql.DB, page, limit int, userID int64, search string) ([]models.Snippet, int, error) {
-	offset := (page - 1) * limit
-
-	// Build WHERE clause
-	whereClause := "WHERE user_id = ?"
-	args := []interface{}{userID}
-
-	if search != "" {
-		// Use FTS5 for search - join with snippets_fts table
-		whereClause = `WHERE s.user_id = ? AND s.id IN (
-			SELECT content_id FROM snippets_fts 
-			WHERE snippets_fts MATCH ?
-		)`
-		args = append(args, search)
-	}
-
-	// Get total count
-	var total int
-	var countQuery string
-	if search != "" {
-		countQuery = fmt.Sprintf("SELECT COUNT(*) FROM snippets s %s", whereClause)
-	} else {
-		countQuery = fmt.Sprintf("SELECT COUNT(*) FROM snippets %s", whereClause)
-	}
-
-	err := db.QueryRow(countQuery, args...).Scan(&total)
-	if err != nil {
-		fmt.Printf("Database error getting snippet count: %v\n", err)
-		return nil, 0, fmt.Errorf("%w: failed to get snippet count", ErrDatabaseError)
-	}
-
-	var dataQuery string
-	if search != "" {
-		dataQuery = fmt.Sprintf(`
-			SELECT s.id, s.user_id, s.folder_id, s.title, s.description, s.content, s.language, s.is_favorite, s.created_at, s.updated_at
-			FROM snippets s %s 
-			ORDER BY s.created_at DESC 
-			LIMIT ? OFFSET ?`, whereClause)
-	} else {
-		dataQuery = fmt.Sprintf(`
-			SELECT id, user_id, folder_id, title, description, content, language, is_favorite, created_at, updated_at
-			FROM snippets %s 
-			ORDER BY created_at DESC 
-			LIMIT ? OFFSET ?`, whereClause)
-	}
-
-	queryArgs := append(args, limit, offset)
-
-	rows, err := db.Query(dataQuery, queryArgs...)
-	if err != nil {
-		fmt.Printf("Database error getting snippets: %v\n", err)
-		return nil, 0, fmt.Errorf("%w: failed to get snippets", ErrDatabaseError)
-	}
-	defer rows.Close()
-
-	var snippets []models.Snippet
-	var snippetIDs []int64
-
-	for rows.Next() {
-		var snippet models.Snippet
-		var description sql.NullString
-		var folderID sql.NullInt64 // Add this for folder_id
-
-		err := rows.Scan(
-			&snippet.ID,
-			&snippet.UserID,
-			&folderID, // Add this scan parameter
-			&snippet.Title,
-			&description,
-			&snippet.Content,
-			&snippet.Language,
-			&snippet.IsFavorite,
-			&snippet.CreatedAt,
-			&snippet.UpdatedAt,
-		)
-		if err != nil {
-			fmt.Printf("Database error scanning snippet row: %v\n", err)
-			return nil, 0, fmt.Errorf("%w: failed to scan snippet data", ErrDatabaseError)
-		}
-
-		// Handle nullable description
-		if description.Valid {
-			snippet.Description = &description.String
-		}
-
-		// Handle nullable folder_id
-		if folderID.Valid {
-			snippet.FolderID = &folderID.Int64
-		}
-
-		snippets = append(snippets, snippet)
-		snippetIDs = append(snippetIDs, snippet.ID)
-	}
-
-	if err = rows.Err(); err != nil {
-		fmt.Printf("Database error iterating snippets: %v\n", err)
-		return nil, 0, fmt.Errorf("%w: failed to iterate snippets", ErrDatabaseError)
-	}
-
-	// Batch fetch tags for all snippets
-	if len(snippetIDs) > 0 {
-		err = attachTagsToSnippets(db, snippets, snippetIDs)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to attach tags: %w", err)
-		}
-	}
-
-	return snippets, total, nil
-}
-
-func DeleteSnippet(db *sql.DB, snippetID int64) error {
-	deleteQuery := "DELETE FROM snippets WHERE id = ?"
-	result, err := db.Exec(deleteQuery, snippetID)
-	if err != nil {
-		fmt.Printf("Database error deleting snippet ID %d: %v\n", snippetID, err)
-		return fmt.Errorf("%w: failed to delete snippet", ErrDatabaseError)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		fmt.Printf("Error checking rows affected for delete: %v\n", err)
-		return fmt.Errorf("%w: failed to verify deletion", ErrDatabaseError)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("user with ID %d does not exist: %w", snippetID, ErrNoSnippetError)
-	}
-
-	return nil
 }
 
 func UpdateSnippet(db *sql.DB, snippetID int64, snippet *models.Snippet) error {
 	tx, err := db.Begin()
 	if err != nil {
-		fmt.Printf("Error starting transaction: %v\n", err)
 		return fmt.Errorf("%w: failed to start transaction", ErrDatabaseError)
 	}
 	defer tx.Rollback()
 
-	// Check if snippet exists and get current data
-	selectQuery := `
-		SELECT id, user_id, folder_id, title, description, content, language, is_favorite, created_at, updated_at
-		FROM snippets WHERE id = ?`
-
-	var currentSnippet models.Snippet
-	var description sql.NullString
-	var folderID sql.NullInt64
-	err = tx.QueryRow(selectQuery, snippetID).Scan(
-		&currentSnippet.ID,
-		&currentSnippet.UserID,
-		&folderID,
-		&currentSnippet.Title,
-		&description,
-		&currentSnippet.Content,
-		&currentSnippet.Language,
-		&currentSnippet.IsFavorite,
-		&currentSnippet.CreatedAt,
-		&currentSnippet.UpdatedAt,
-	)
+	// Check if snippet exists first
+	var currentUserID int64
+	err = tx.QueryRow("SELECT user_id FROM snippets WHERE id = ?", snippetID).Scan(&currentUserID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("snippet with ID %d does not exist: %w", snippetID, ErrNoSnippetError)
 		}
-		fmt.Printf("Database error retrieving snippet for update: %v\n", err)
-		return fmt.Errorf("%w: failed to retrieve snippet for update", ErrDatabaseError)
-	}
-
-	// Convert nullable fields for current snippet
-	if description.Valid {
-		currentSnippet.Description = &description.String
-	}
-	if folderID.Valid {
-		currentSnippet.FolderID = &folderID.Int64
+		return fmt.Errorf("%w: failed to check snippet existence", ErrDatabaseError)
 	}
 
 	// Prepare values for update
@@ -470,7 +273,7 @@ func UpdateSnippet(db *sql.DB, snippetID int64, snippet *models.Snippet) error {
 		SET folder_id = ?, title = ?, description = ?, content = ?, language = ?, is_favorite = ?, updated_at = ?
 		WHERE id = ?`
 
-	_, err = tx.Exec(updateQuery,
+	result, err := tx.Exec(updateQuery,
 		folderIDValue,
 		snippet.Title,
 		descriptionValue,
@@ -481,8 +284,16 @@ func UpdateSnippet(db *sql.DB, snippetID int64, snippet *models.Snippet) error {
 		snippetID,
 	)
 	if err != nil {
-		fmt.Printf("Database error updating snippet: %v\n", err)
 		return fmt.Errorf("%w: failed to update snippet", ErrDatabaseError)
+	}
+
+	// Verify the update actually happened
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%w: failed to verify update", ErrDatabaseError)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("snippet with ID %d does not exist: %w", snippetID, ErrNoSnippetError)
 	}
 
 	// Handle tags update if provided
@@ -490,79 +301,34 @@ func UpdateSnippet(db *sql.DB, snippetID int64, snippet *models.Snippet) error {
 		// Delete existing tag associations
 		_, err = tx.Exec("DELETE FROM snippet_tags WHERE snippet_id = ?", snippetID)
 		if err != nil {
-			fmt.Printf("Database error removing old tags: %v\n", err)
 			return fmt.Errorf("%w: failed to update snippet tags", ErrDatabaseError)
 		}
 
 		// Insert new tag associations
 		if len(*snippet.Tags) > 0 {
-			err = insertSnippetTags(tx, snippetID, currentSnippet.UserID, *snippet.Tags)
+			err = insertSnippetTags(tx, snippetID, currentUserID, *snippet.Tags)
 			if err != nil {
 				return fmt.Errorf("failed to update snippet tags: %w", err)
 			}
 		}
 	}
 
-	// Get the updated snippet data
-	err = tx.QueryRow(selectQuery, snippetID).Scan(
-		&snippet.ID,
-		&snippet.UserID,
-		&folderID,
-		&snippet.Title,
-		&description,
-		&snippet.Content,
-		&snippet.Language,
-		&snippet.IsFavorite,
-		&snippet.CreatedAt,
-		&snippet.UpdatedAt,
-	)
-	if err != nil {
-		fmt.Printf("Error retrieving updated snippet: %v\n", err)
-		return fmt.Errorf("%w: failed to retrieve updated snippet", ErrDatabaseError)
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("%w: failed to commit update", ErrDatabaseError)
 	}
 
-	// Convert nullable fields for response
-	if description.Valid {
-		snippet.Description = &description.String
-	} else {
-		snippet.Description = nil
-	}
-	if folderID.Valid {
-		snippet.FolderID = &folderID.Int64
-	} else {
-		snippet.FolderID = nil
-	}
+	// Update the snippet object with the new data
+	snippet.ID = snippetID
+	snippet.UserID = currentUserID
+	snippet.UpdatedAt = now
 
-	// If tags were updated, get the new tags
+	// Get the updated tags if they were modified
 	if snippet.Tags != nil {
-		tagQuery := `
-			SELECT t.name 
-			FROM snippet_tags st
-			JOIN tags t ON st.tag_id = t.id  
-			WHERE st.snippet_id = ?
-			ORDER BY t.name`
-
-		rows, err := tx.Query(tagQuery, snippetID)
+		tags, err := getSnippetTags(db, snippetID)
 		if err != nil {
-			fmt.Printf("Error retrieving updated tags: %v\n", err)
-			return fmt.Errorf("%w: failed to retrieve updated tags", ErrDatabaseError)
+			return fmt.Errorf("failed to retrieve updated tags: %w", err)
 		}
-		defer rows.Close()
-
-		var tags []string
-		for rows.Next() {
-			var tagName string
-			if err := rows.Scan(&tagName); err != nil {
-				return fmt.Errorf("failed to scan updated tag: %w", err)
-			}
-			tags = append(tags, tagName)
-		}
-
-		if err = rows.Err(); err != nil {
-			return fmt.Errorf("failed to iterate updated tags: %w", err)
-		}
-
-		// Update the snippet with new tags (only if we have tags)
 		if len(tags) > 0 {
 			snippet.Tags = &tags
 		} else {
@@ -571,13 +337,57 @@ func UpdateSnippet(db *sql.DB, snippetID int64, snippet *models.Snippet) error {
 		}
 	}
 
-	// Commit the transaction
-	if err = tx.Commit(); err != nil {
-		fmt.Printf("Error committing transaction: %v\n", err)
-		return fmt.Errorf("%w: failed to commit update", ErrDatabaseError)
+	return nil
+}
+
+func DeleteSnippet(db *sql.DB, snippetID int64) error {
+	deleteQuery := "DELETE FROM snippets WHERE id = ?"
+	result, err := db.Exec(deleteQuery, snippetID)
+	if err != nil {
+		return fmt.Errorf("%w: failed to delete snippet", ErrDatabaseError)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%w: failed to verify deletion", ErrDatabaseError)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("snippet with ID %d does not exist: %w", snippetID, ErrNoSnippetError)
 	}
 
 	return nil
+}
+
+// Helper function to get tags for a single snippet
+func getSnippetTags(db *sql.DB, snippetID int64) ([]string, error) {
+	tagQuery := `
+		SELECT t.name 
+		FROM snippet_tags st
+		JOIN tags t ON st.tag_id = t.id  
+		WHERE st.snippet_id = ?
+		ORDER BY t.name`
+
+	rows, err := db.Query(tagQuery, snippetID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query snippet tags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []string
+	for rows.Next() {
+		var tagName string
+		if err := rows.Scan(&tagName); err != nil {
+			return nil, fmt.Errorf("failed to scan tag: %w", err)
+		}
+		tags = append(tags, tagName)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate tags: %w", err)
+	}
+
+	return tags, nil
 }
 
 func attachTagsToSnippets(db *sql.DB, snippets []models.Snippet, snippetIDs []int64) error {
@@ -632,22 +442,37 @@ func attachTagsToSnippets(db *sql.DB, snippets []models.Snippet, snippetIDs []in
 
 func insertSnippetTags(tx *sql.Tx, snippetID int64, userID int64, tagNames []string) error {
 	for _, tagName := range tagNames {
-		// First, ensure the tag exists for this user (insert if not exists)
-		var tagID int64
-		err := tx.QueryRow(`
-			INSERT INTO tags (user_id, name, created_at) 
-			VALUES (?, ?, ?) 
-			ON CONFLICT(user_id, name) DO UPDATE SET user_id = user_id
-			RETURNING id`,
-			userID, tagName, time.Now(),
-		).Scan(&tagID)
-		if err != nil {
-			return fmt.Errorf("failed to insert/get tag %s: %w", tagName, err)
+		// Clean up tag name
+		tagName = strings.TrimSpace(tagName)
+		if tagName == "" {
+			continue
 		}
 
-		// Then link the tag to the snippet
+		// First, ensure the tag exists for this user (insert if not exists)
+		var tagID int64
+
+		// Try to get existing tag first
+		err := tx.QueryRow("SELECT id FROM tags WHERE user_id = ? AND name = ?", userID, tagName).Scan(&tagID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				// Tag doesn't exist, create it
+				err = tx.QueryRow(`
+					INSERT INTO tags (user_id, name, created_at) 
+					VALUES (?, ?, ?)
+					RETURNING id`,
+					userID, tagName, time.Now(),
+				).Scan(&tagID)
+				if err != nil {
+					return fmt.Errorf("failed to create tag %s: %w", tagName, err)
+				}
+			} else {
+				return fmt.Errorf("failed to get tag %s: %w", tagName, err)
+			}
+		}
+
+		// Then link the tag to the snippet (ignore duplicates)
 		_, err = tx.Exec(`
-			INSERT INTO snippet_tags (snippet_id, tag_id) 
+			INSERT OR IGNORE INTO snippet_tags (snippet_id, tag_id) 
 			VALUES (?, ?)`,
 			snippetID, tagID,
 		)
@@ -658,3 +483,6 @@ func insertSnippetTags(tx *sql.Tx, snippetID int64, userID int64, tagNames []str
 
 	return nil
 }
+
+// Remove the duplicate GetSnippetsWithOptionalUser function - it's not needed
+// since you have proper authentication middleware

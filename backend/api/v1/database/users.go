@@ -288,3 +288,146 @@ func populateUserFromDB(db *sql.DB, userID int64, user *models.User) error {
 
 	return nil
 }
+
+// Helper functions for auth functionality
+func IsUsernameExistsError(err error) bool {
+	return errors.Is(err, ErrUsernameExists)
+}
+
+func IsUserNotFoundError(err error) bool {
+	return errors.Is(err, ErrNoUserError) || errors.Is(err, sql.ErrNoRows)
+}
+
+// Extended user model for auth with password
+type UserWithPassword struct {
+	models.User
+	Password string `json:"-"` // Don't include in JSON responses
+}
+
+func CreateUserWithPassword(db *sql.DB, user *UserWithPassword) error {
+	// Check if username exists first
+	var count int
+	checkQuery := "SELECT COUNT(*) FROM users WHERE username = ?"
+	err := db.QueryRow(checkQuery, user.Username).Scan(&count)
+	if err != nil {
+		fmt.Printf("Database error during username check: %v\n", err)
+		return fmt.Errorf("%w: failed to check username availability", ErrDatabaseError)
+	}
+
+	if count > 0 {
+		return fmt.Errorf("%w: username '%s' is already taken", ErrUsernameExists, user.Username)
+	}
+
+	// Insert the new user with password (requires schema update)
+	insertQuery := `
+        INSERT INTO users (username, display_name, password_hash)
+        VALUES (?, ?, ?)`
+
+	var displayNameValue interface{}
+	if user.DisplayName != nil {
+		displayNameValue = *user.DisplayName
+	} else {
+		displayNameValue = nil
+	}
+
+	result, err := db.Exec(insertQuery, user.Username, displayNameValue, user.Password)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return fmt.Errorf("%w: username became unavailable", ErrUsernameExists)
+		}
+		fmt.Printf("Database error during user creation: %v\n", err)
+		return fmt.Errorf("%w: failed to create user", ErrDatabaseError)
+	}
+
+	userID, err := result.LastInsertId()
+	if err != nil {
+		fmt.Printf("Error getting last insert ID: %v\n", err)
+		return fmt.Errorf("%w: failed to retrieve user ID", ErrDatabaseError)
+	}
+
+	return populateUserFromDBWithPassword(db, userID, user)
+}
+
+func GetUserByUsername(db *sql.DB, username string) (*UserWithPassword, error) {
+	selectQuery := `
+        SELECT id, username, display_name, password_hash, created_at, updated_at
+        FROM users WHERE username = ?`
+
+	var user UserWithPassword
+	var displayName sql.NullString
+	err := db.QueryRow(selectQuery, username).Scan(
+		&user.ID,
+		&user.Username,
+		&displayName,
+		&user.Password,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("user not found")
+		}
+		fmt.Printf("Database error retrieving user by username: %v\n", err)
+		return nil, fmt.Errorf("%w: failed to retrieve user", ErrDatabaseError)
+	}
+
+	if displayName.Valid {
+		user.DisplayName = &displayName.String
+	}
+
+	return &user, nil
+}
+
+func UpdateUserPassword(db *sql.DB, userID int64, hashedPassword string) error {
+	updateQuery := `
+        UPDATE users 
+        SET password_hash = ?, updated_at = CURRENT_TIMESTAMP 
+        WHERE id = ?`
+
+	result, err := db.Exec(updateQuery, hashedPassword, userID)
+	if err != nil {
+		fmt.Printf("Database error updating password for user ID %d: %v\n", userID, err)
+		return fmt.Errorf("%w: failed to update password", ErrDatabaseError)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		fmt.Printf("Error checking rows affected for password update: %v\n", err)
+		return fmt.Errorf("%w: failed to verify password update", ErrDatabaseError)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("user with ID %d does not exist: %w", userID, ErrNoUserError)
+	}
+
+	return nil
+}
+
+func populateUserFromDBWithPassword(db *sql.DB, userID int64, user *UserWithPassword) error {
+	selectQuery := `
+        SELECT id, username, display_name, password_hash, created_at, updated_at
+        FROM users WHERE id = ?`
+
+	var displayName sql.NullString
+	err := db.QueryRow(selectQuery, userID).Scan(
+		&user.ID,
+		&user.Username,
+		&displayName,
+		&user.Password,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return sql.ErrNoRows
+		}
+		fmt.Printf("Database error retrieving user ID %d: %v\n", userID, err)
+		return fmt.Errorf("%w: failed to retrieve user", ErrDatabaseError)
+	}
+
+	if displayName.Valid {
+		user.DisplayName = &displayName.String
+	}
+
+	return nil
+}
