@@ -53,8 +53,8 @@ fragments/
 - [x] Basic server setup
 - [x] Database schema and models
 - [x] JWT-Based authentication
-- [ ] REST API endpoints
-- [ ] Search functionality
+- [x] REST API endpoints
+- [x] Search functionality
 - [ ] Web interface
 - [ ] Tag management
 - [ ] Import/export features
