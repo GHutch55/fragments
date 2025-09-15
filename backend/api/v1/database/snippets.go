@@ -483,6 +483,3 @@ func insertSnippetTags(tx *sql.Tx, snippetID int64, userID int64, tagNames []str
 
 	return nil
 }
-
-// Remove the duplicate GetSnippetsWithOptionalUser function - it's not needed
-// since you have proper authentication middleware
