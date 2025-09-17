@@ -31,17 +31,10 @@ func CreateUser(db *sql.DB, user *models.User) error {
 
 	// Insert the new user
 	insertQuery := `
-		INSERT INTO users (username, display_name)
-		VALUES (?, ?)`
+		INSERT INTO users (username)
+		VALUES (?)`
 
-	var displayNameValue interface{}
-	if user.DisplayName != nil {
-		displayNameValue = *user.DisplayName
-	} else {
-		displayNameValue = nil
-	}
-
-	result, err := db.Exec(insertQuery, user.Username, displayNameValue)
+	result, err := db.Exec(insertQuery, user.Username)
 	if err != nil {
 		// Handle constraint violation as backup (race condition case)
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -80,7 +73,7 @@ func GetUsers(db *sql.DB, page, limit int, search string) ([]models.User, int, e
 	whereClause := ""
 	args := []interface{}{}
 	if search != "" {
-		whereClause = "WHERE username LIKE ? OR display_name LIKE ?"
+		whereClause = "WHERE username LIKE ?"
 		searchPattern := "%" + search + "%"
 		args = append(args, searchPattern, searchPattern)
 	}
@@ -96,7 +89,7 @@ func GetUsers(db *sql.DB, page, limit int, search string) ([]models.User, int, e
 
 	// Get actual users
 	dataQuery := fmt.Sprintf(`
-		SELECT id, username, display_name, created_at, updated_at 
+		SELECT id, username, created_at, updated_at 
 		FROM users %s 
 		ORDER BY created_at DESC 
 		LIMIT ? OFFSET ?`, whereClause)
@@ -112,18 +105,11 @@ func GetUsers(db *sql.DB, page, limit int, search string) ([]models.User, int, e
 	var users []models.User
 	for rows.Next() {
 		var user models.User
-		var displayName sql.NullString
 
-		err := rows.Scan(&user.ID, &user.Username, &displayName, &user.CreatedAt, &user.UpdatedAt)
+		err := rows.Scan(&user.ID, &user.Username, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
 			fmt.Printf("Database error scanning user row: %v\n", err)
 			return nil, 0, fmt.Errorf("%w: failed to scan user data", ErrDatabaseError)
-		}
-
-		if displayName.Valid {
-			user.DisplayName = &displayName.String
-		} else {
-			user.DisplayName = nil
 		}
 
 		users = append(users, user)
@@ -170,15 +156,13 @@ func UpdateUser(db *sql.DB, userID int64, user *models.User) error {
 
 	// Check if user exists and get current data
 	selectQuery := `
-		SELECT id, username, display_name, created_at, updated_at
+		SELECT id, username,  created_at, updated_at
 		FROM users WHERE id = ?`
 
 	var currentUser models.User
-	var displayName sql.NullString
 	err = tx.QueryRow(selectQuery, userID).Scan(
 		&currentUser.ID,
 		&currentUser.Username,
-		&displayName,
 		&currentUser.CreatedAt,
 		&currentUser.UpdatedAt,
 	)
@@ -188,13 +172,6 @@ func UpdateUser(db *sql.DB, userID int64, user *models.User) error {
 		}
 		fmt.Printf("Database error retrieving user for update: %v\n", err)
 		return fmt.Errorf("%w: failed to retrieve user for update", ErrDatabaseError)
-	}
-
-	// Convert display name for comparison
-	if displayName.Valid {
-		currentUser.DisplayName = &displayName.String
-	} else {
-		currentUser.DisplayName = nil
 	}
 
 	// Check if username is changing and if new username already exists
@@ -211,19 +188,12 @@ func UpdateUser(db *sql.DB, userID int64, user *models.User) error {
 		}
 	}
 
-	var displayNameValue interface{}
-	if user.DisplayName != nil {
-		displayNameValue = *user.DisplayName
-	} else {
-		displayNameValue = nil
-	}
-
 	updateQuery := `
 		UPDATE users 
-		SET username = ?, display_name = ?, updated_at = CURRENT_TIMESTAMP 
+		SET username = ?, updated_at = CURRENT_TIMESTAMP 
 		WHERE id = ?`
 
-	_, err = tx.Exec(updateQuery, user.Username, displayNameValue, userID)
+	_, err = tx.Exec(updateQuery, user.Username, userID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("%w: username became unavailable", ErrUsernameExists)
@@ -235,19 +205,12 @@ func UpdateUser(db *sql.DB, userID int64, user *models.User) error {
 	err = tx.QueryRow(selectQuery, userID).Scan(
 		&user.ID,
 		&user.Username,
-		&displayName,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
 	if err != nil {
 		fmt.Printf("Error retrieving updated user: %v\n", err)
 		return fmt.Errorf("%w: failed to retrieve updated user", ErrDatabaseError)
-	}
-
-	if displayName.Valid {
-		user.DisplayName = &displayName.String
-	} else {
-		user.DisplayName = nil
 	}
 
 	// Commit the transaction
@@ -261,14 +224,12 @@ func UpdateUser(db *sql.DB, userID int64, user *models.User) error {
 
 func populateUserFromDB(db *sql.DB, userID int64, user *models.User) error {
 	selectQuery := `
-		SELECT id, username, display_name, created_at, updated_at
+		SELECT id, username, created_at, updated_at
 		FROM users WHERE id = ?`
 
-	var displayName sql.NullString
 	err := db.QueryRow(selectQuery, userID).Scan(
 		&user.ID,
 		&user.Username,
-		&displayName,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -278,12 +239,6 @@ func populateUserFromDB(db *sql.DB, userID int64, user *models.User) error {
 		}
 		fmt.Printf("Database error retrieving user ID %d: %v\n", userID, err)
 		return fmt.Errorf("%w: failed to retrieve user", ErrDatabaseError)
-	}
-
-	if displayName.Valid {
-		user.DisplayName = &displayName.String
-	} else {
-		user.DisplayName = nil
 	}
 
 	return nil
@@ -320,17 +275,10 @@ func CreateUserWithPassword(db *sql.DB, user *UserWithPassword) error {
 
 	// Insert the new user with password (requires schema update)
 	insertQuery := `
-        INSERT INTO users (username, display_name, password_hash)
+        INSERT INTO users (username,  password_hash)
         VALUES (?, ?, ?)`
 
-	var displayNameValue interface{}
-	if user.DisplayName != nil {
-		displayNameValue = *user.DisplayName
-	} else {
-		displayNameValue = nil
-	}
-
-	result, err := db.Exec(insertQuery, user.Username, displayNameValue, user.Password)
+	result, err := db.Exec(insertQuery, user.Username, user.Password)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("%w: username became unavailable", ErrUsernameExists)
@@ -350,15 +298,13 @@ func CreateUserWithPassword(db *sql.DB, user *UserWithPassword) error {
 
 func GetUserByUsername(db *sql.DB, username string) (*UserWithPassword, error) {
 	selectQuery := `
-        SELECT id, username, display_name, password_hash, created_at, updated_at
+        SELECT id, username,  password_hash, created_at, updated_at
         FROM users WHERE username = ?`
 
 	var user UserWithPassword
-	var displayName sql.NullString
 	err := db.QueryRow(selectQuery, username).Scan(
 		&user.ID,
 		&user.Username,
-		&displayName,
 		&user.Password,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -369,10 +315,6 @@ func GetUserByUsername(db *sql.DB, username string) (*UserWithPassword, error) {
 		}
 		fmt.Printf("Database error retrieving user by username: %v\n", err)
 		return nil, fmt.Errorf("%w: failed to retrieve user", ErrDatabaseError)
-	}
-
-	if displayName.Valid {
-		user.DisplayName = &displayName.String
 	}
 
 	return &user, nil
@@ -405,14 +347,12 @@ func UpdateUserPassword(db *sql.DB, userID int64, hashedPassword string) error {
 
 func populateUserFromDBWithPassword(db *sql.DB, userID int64, user *UserWithPassword) error {
 	selectQuery := `
-        SELECT id, username, display_name, password_hash, created_at, updated_at
+        SELECT id, username,  password_hash, created_at, updated_at
         FROM users WHERE id = ?`
 
-	var displayName sql.NullString
 	err := db.QueryRow(selectQuery, userID).Scan(
 		&user.ID,
 		&user.Username,
-		&displayName,
 		&user.Password,
 		&user.CreatedAt,
 		&user.UpdatedAt,
@@ -423,10 +363,6 @@ func populateUserFromDBWithPassword(db *sql.DB, userID int64, user *UserWithPass
 		}
 		fmt.Printf("Database error retrieving user ID %d: %v\n", userID, err)
 		return fmt.Errorf("%w: failed to retrieve user", ErrDatabaseError)
-	}
-
-	if displayName.Valid {
-		user.DisplayName = &displayName.String
 	}
 
 	return nil

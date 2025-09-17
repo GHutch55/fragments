@@ -1,3 +1,4 @@
+![logo full](https://raw.githubusercontent.com/GHutch55/fragments/1c78300668f8fa217e017d9c2d8bf1aa48c13b18/frontend/src/assets/logoFull.svg)
 # Fragments
 
 A modern code snippet manager designed for developers who value organization and quick access to their code libraries.

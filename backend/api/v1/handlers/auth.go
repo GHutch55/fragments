@@ -33,7 +33,6 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username    string  `json:"username"`
 		Password    string  `json:"password"`
-		DisplayName *string `json:"display_name,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -58,7 +57,6 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	userWithPassword := &database.UserWithPassword{
 		User: models.User{
 			Username:    req.Username,
-			DisplayName: req.DisplayName,
 		},
 		Password: string(hashedPassword),
 	}
@@ -88,7 +86,6 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	userResponse := models.UserResponse{
 		ID:          userWithPassword.ID,
 		Username:    userWithPassword.Username,
-		DisplayName: userWithPassword.DisplayName,
 		CreatedAt:   userWithPassword.CreatedAt,
 		UpdatedAt:   userWithPassword.UpdatedAt,
 	}
@@ -146,7 +143,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	userResponse := models.UserResponse{
 		ID:          user.ID,
 		Username:    user.Username,
-		DisplayName: user.DisplayName,
 		CreatedAt:   user.CreatedAt,
 		UpdatedAt:   user.UpdatedAt,
 	}
@@ -172,7 +168,6 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	userResponse := models.UserResponse{
 		ID:          user.ID,
 		Username:    user.Username,
-		DisplayName: user.DisplayName,
 		CreatedAt:   user.CreatedAt,
 		UpdatedAt:   user.UpdatedAt,
 	}

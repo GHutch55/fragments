@@ -114,9 +114,8 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var newUser struct {
-		Username    string  `json:"username"`
-		DisplayName *string `json:"display_name,omitempty"`
-		Password    string  `json:"password"`
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&newUser); err != nil {
@@ -132,8 +131,7 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	// Create user model for validation
 	userModel := models.User{
-		Username:    newUser.Username,
-		DisplayName: newUser.DisplayName,
+		Username: newUser.Username,
 	}
 
 	// Validate the user data
@@ -380,17 +378,6 @@ func (h *UserHandler) validateUser(user *models.User) error {
 		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
 			(r >= '0' && r <= '9') || r == '_' || r == '-') {
 			return errors.New("username can only contain letters, numbers, underscores, and hyphens")
-		}
-	}
-
-	// Validate display_name (optional)
-	if user.DisplayName != nil {
-		*user.DisplayName = sanitizeString(*user.DisplayName)
-		if utf8.RuneCountInString(*user.DisplayName) > 100 {
-			return errors.New("display name must be less than 100 characters")
-		}
-		if *user.DisplayName == "" {
-			user.DisplayName = nil
 		}
 	}
 
