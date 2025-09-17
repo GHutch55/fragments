@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { authAPI } from "@/api";
 import type { RegisterInput } from "@/api";
 
@@ -13,7 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import LogoFull from "../assets/logoFull.svg";
+import LogoFull from "@/assets/logoFull.svg";
 
 interface RegisterFormState extends RegisterInput {
   confirmPassword: string;
@@ -47,6 +48,7 @@ export function RegisterForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -71,7 +73,7 @@ export function RegisterForm() {
       console.log("Registered:", user);
       // maybe redirect to login or dashboard
     } catch (err: unknown) {
-      if (typeof error === "string") {
+      if (typeof err === "string") {
         setError("Registration Failed");
       } else if (err instanceof Error) {
         setError(err.message);
@@ -91,7 +93,7 @@ export function RegisterForm() {
             Enter your info to sign up for Fragments
           </CardDescription>
           <CardAction>
-            <Button variant="default">Log In</Button>
+            <Button variant="default" onClick={() => navigate("/login")}>Log In</Button>
           </CardAction>
         </CardHeader>
 
