@@ -31,8 +31,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
-		Username    string  `json:"username"`
-		Password    string  `json:"password"`
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -56,7 +56,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Create user with password
 	userWithPassword := &database.UserWithPassword{
 		User: models.User{
-			Username:    req.Username,
+			Username: req.Username,
 		},
 		Password: string(hashedPassword),
 	}
@@ -84,10 +84,10 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Create response
 	userResponse := models.UserResponse{
-		ID:          userWithPassword.ID,
-		Username:    userWithPassword.Username,
-		CreatedAt:   userWithPassword.CreatedAt,
-		UpdatedAt:   userWithPassword.UpdatedAt,
+		ID:        userWithPassword.ID,
+		Username:  userWithPassword.Username,
+		CreatedAt: userWithPassword.CreatedAt,
+		UpdatedAt: userWithPassword.UpdatedAt,
 	}
 
 	response := models.AuthResponse{
@@ -141,10 +141,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Create response
 	userResponse := models.UserResponse{
-		ID:          user.ID,
-		Username:    user.Username,
-		CreatedAt:   user.CreatedAt,
-		UpdatedAt:   user.UpdatedAt,
+		ID:        user.ID,
+		Username:  user.Username,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
 	}
 
 	response := models.AuthResponse{
@@ -166,10 +166,10 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userResponse := models.UserResponse{
-		ID:          user.ID,
-		Username:    user.Username,
-		CreatedAt:   user.CreatedAt,
-		UpdatedAt:   user.UpdatedAt,
+		ID:        user.ID,
+		Username:  user.Username,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -303,7 +303,7 @@ func (h *AuthHandler) isStrongPassword(password string) bool {
 	hasUpper := false
 	hasLower := false
 	hasNumber := false
-	hasSpecial := false // Add this
+	hasSpecial := false
 
 	for _, char := range password {
 		switch {
@@ -313,10 +313,10 @@ func (h *AuthHandler) isStrongPassword(password string) bool {
 			hasLower = true
 		case char >= '0' && char <= '9':
 			hasNumber = true
-		case strings.ContainsRune("!@#$%^&*()_+-=[]{}|;:,.<>?", char): // Add this
+		case strings.ContainsRune("!@#$%^&*()_+-=[]{}|;:,.<>?", char):
 			hasSpecial = true
 		}
 	}
 
-	return hasUpper && hasLower && hasNumber && hasSpecial // Add hasSpecial
+	return hasUpper && hasLower && hasNumber && hasSpecial
 }

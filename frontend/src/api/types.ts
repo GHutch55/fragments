@@ -58,8 +58,6 @@ export interface ApiSuccess {
   success: true;
 }
 
-// ===== Input DTOs =====
-
 // Auth
 export interface RegisterInput {
   username: string;
