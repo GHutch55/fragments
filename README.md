@@ -13,7 +13,7 @@ Fragments provides a fast, searchable library for your code snippets with smart 
 ## Features
 
 - 🔍 **Full-text search** - Find snippets instantly across titles, content, and tags
-- 🏷️ **Smart tagging** - Organize with flexible tagging system and auto-suggestions
+- 🏷️ **Smart tagging** - Organize with a flexible tagging system and auto-suggestions
 - 📁 **Folder organization** - Hierarchical structure for logical grouping
 - 🎨 **Syntax highlighting** - Support for 100+ programming languages
 - ⚡ **Fast performance** - Built with Go for lightning-fast responses
@@ -24,29 +24,6 @@ Fragments provides a fast, searchable library for your code snippets with smart 
 - **Backend**: Go with Chi router and SQLite
 - **Frontend**: React + TypeScript (planned)
 - **Hosting**: Railway (API) + Vercel (Frontend)
-
-## Development
-
-### Prerequisites
-- Go 1.21 or higher
-- Git
-
-### Running Locally
-
-```bash
-cd api
-go run main.go
-```
-
-Visit http://localhost:8080 to see the development server.
-
-### Project Structure
-```
-fragments/
-├── api/           # Go backend server
-├── web/           # React frontend (coming soon)
-└── docs/          # Documentation (coming soon)
-```
 
 ## Roadmap
 
