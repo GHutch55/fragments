@@ -25,27 +25,11 @@ Fragments provides a fast, searchable library for your code snippets with smart 
 - **Frontend**: React + TypeScript (planned)
 - **Hosting**: Railway (API) + Vercel (Frontend)
 
-## Development
-
-### Prerequisites
-- Go 1.21 or higher
-- Git
-
-### Running Locally
-
-```bash
-cd api
-go run main.go
-```
-
-Visit http://localhost:8080 to see the development server.
-
 ### Project Structure
 ```
 fragments/
-├── api/           # Go backend server
-├── web/           # React frontend (coming soon)
-└── docs/          # Documentation (coming soon)
+├── backend/           # Go backend server
+├── frontend/           # React frontend (in progress)
 ```
 
 ## Roadmap
