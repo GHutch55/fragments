@@ -66,7 +66,7 @@ func main() {
 	r.Get("/", handlers.HomeHandler)
 	r.Get("/health", handlers.HealthHandler)
 
-	r.Route("/api", func(r chi.Router) {
+	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/", handlers.ApiInfoHandler)
 
 		// Auth routes with rate limiting
@@ -95,7 +95,7 @@ func main() {
 				r.Put("/me", userHandler.UpdateCurrentUser)
 				r.Delete("/me", userHandler.DeleteCurrentUser)
 
-				// Admin-only routes (if you need them later)
+				// Admin-only routes (if I need them later)
 				// r.Get("/{id}", userHandler.GetUser)
 				// r.Get("/", userHandler.GetUsers)
 			})

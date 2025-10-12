@@ -276,7 +276,7 @@ func CreateUserWithPassword(db *sql.DB, user *UserWithPassword) error {
 	// Insert the new user with password (requires schema update)
 	insertQuery := `
         INSERT INTO users (username,  password_hash)
-        VALUES (?, ?, ?)`
+        VALUES (?, ?)`
 
 	result, err := db.Exec(insertQuery, user.Username, user.Password)
 	if err != nil {

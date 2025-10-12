@@ -71,7 +71,7 @@ export function RegisterForm() {
         password: form.password,
       });
       console.log("Registered:", user);
-      // maybe redirect to login or dashboard
+      navigate("/login")
     } catch (err: unknown) {
       if (typeof err === "string") {
         setError("Registration Failed");

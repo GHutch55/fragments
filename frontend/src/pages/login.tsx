@@ -91,7 +91,7 @@ export function LoginForm() {
             {error && <p className="text-red-500 text-sm">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Creating Account..." : "Create Account"}
+              {loading ? "Logging In..." : "Log In"}
             </Button>
           </form>
         </CardContent>
