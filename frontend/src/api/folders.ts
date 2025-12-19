@@ -1,6 +1,7 @@
 import { apiRequest } from "./client";
 import type {
   Folder,
+  Paginated,
   ApiSuccess,
   CreateFolderInput,
   UpdateFolderInput,
@@ -14,8 +15,8 @@ export const foldersAPI = {
     });
   },
 
-  getAll: async (): Promise<Folder[]> => {
-    return apiRequest<Folder[]>("/folders");
+  getAll: async (): Promise<Paginated<Folder>> => {
+    return apiRequest<Paginated<Folder>>("/folders");
   },
 
   getById: async (id: number): Promise<Folder> => {

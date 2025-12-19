@@ -54,24 +54,16 @@ export function RegisterForm() {
     e.preventDefault();
     setError(null);
 
-    if (form.password !== form.confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
-
-    if (validatePassword(form.password)) {
-      setError("Password does not meet requirements");
-      return;
-    }
-
     try {
       setLoading(true);
-      const user = await authAPI.register({
+      const response = await authAPI.register({
         username: form.username,
         password: form.password,
       });
-      console.log("Registered:", user);
-      navigate("/login")
+
+      localStorage.setItem("authToken", response.token);
+
+      navigate("/login");
     } catch (err: unknown) {
       if (typeof err === "string") {
         setError("Registration Failed");
@@ -93,7 +85,9 @@ export function RegisterForm() {
             Enter your info to sign up for Fragments
           </CardDescription>
           <CardAction>
-            <Button variant="default" onClick={() => navigate("/login")}>Log In</Button>
+            <Button variant="default" onClick={() => navigate("/login")}>
+              Log In
+            </Button>
           </CardAction>
         </CardHeader>
 

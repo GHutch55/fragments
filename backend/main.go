@@ -17,27 +17,31 @@ import (
 )
 
 func main() {
+	log.Println("1. Starting application...")
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Println("2. Config loaded successfully")
 
 	// JWT secret is required - fail fast if not provided
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		log.Fatal("JWT_SECRET environment variable is required")
 	}
-
 	if len(jwtSecret) < 32 {
 		log.Fatal("JWT_SECRET must be at least 32 characters long")
 	}
+	log.Println("3. JWT secret validated")
 
+	log.Printf("4. Attempting to connect to database at: %s", cfg.DatabasePath)
 	db, err := database.Connect(cfg.DatabasePath)
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 	defer db.Close()
-
+	log.Println("5. Database connected successfully")
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(time.Hour)
@@ -46,11 +50,12 @@ func main() {
 	authMiddleware := middleware.NewAuthMiddleware(db, jwtSecret)
 	userHandler := &handlers.UserHandler{DB: db}
 	snippetHandler := &handlers.SnippetHandler{DB: db}
+	folderHandler := &handlers.FolderHandler{DB: db}
 	authHandler := handlers.NewAuthHandler(db, authMiddleware)
 
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Logger)
-	r.Use(chimiddleware.RequestSize(10 << 20)) // 10 mb limit
+	r.Use(chimiddleware.RequestSize(10 << 20))     // 10 mb limit
 	r.Use(chimiddleware.Timeout(60 * time.Second)) // 1 minute timeout
 	r.Use(chimiddleware.Compress(5))
 	r.Use(chimiddleware.Recoverer)
@@ -107,6 +112,14 @@ func main() {
 				r.Get("/", snippetHandler.GetSnippets)
 				r.Delete("/{id}", snippetHandler.DeleteSnippet)
 				r.Put("/{id}", snippetHandler.UpdateSnippet)
+			})
+
+			r.Route("/folders", func(r chi.Router) {
+				r.Post("/", folderHandler.CreateFolder)
+				r.Get("/{id}", folderHandler.GetFolder)
+				r.Get("/", folderHandler.GetFolders)
+				r.Delete("/{id}", folderHandler.DeleteFolder)
+				r.Put("/{id}", folderHandler.UpdateFolder)
 			})
 		})
 	})

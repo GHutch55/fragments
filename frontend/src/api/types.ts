@@ -96,6 +96,7 @@ export interface UpdateFolderInput {
 // Snippets
 export interface CreateSnippetInput {
   title: string;
+  description?: string;
   content: string;
   language: string;
   folder_id?: number | null;
@@ -103,9 +104,11 @@ export interface CreateSnippetInput {
 
 export interface UpdateSnippetInput {
   title?: string;
+  description?: string;
   content?: string;
   language?: string;
   is_favorite?: boolean;
+  folder_id?: number | null;
 }
 
 // Tags

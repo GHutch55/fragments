@@ -80,8 +80,11 @@ func (am *AuthMiddleware) ValidateToken(tokenString string) (*Claims, error) {
 	}
 
 	claims := &Claims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		// Validate the signing method
+
+	// Add leeway for clock skew (5 minutes)
+	parser := jwt.NewParser(jwt.WithLeeway(5 * time.Minute))
+
+	token, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -95,7 +98,6 @@ func (am *AuthMiddleware) ValidateToken(tokenString string) (*Claims, error) {
 		return nil, errors.New("token is not valid")
 	}
 
-	// Additional validation
 	if claims.UserID <= 0 {
 		return nil, errors.New("invalid user ID in token")
 	}

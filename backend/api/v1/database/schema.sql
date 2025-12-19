@@ -15,6 +15,7 @@ CREATE TABLE folders (
     description TEXT,
     parent_id INTEGER, -- for nested folders (nullable)
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE SET NULL,
     UNIQUE(user_id, name, parent_id) -- prevent duplicate folder names in same location

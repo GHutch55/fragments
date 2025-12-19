@@ -32,12 +32,15 @@ export function LoginForm() {
 
     try {
       setLoading(true);
-      const user = await authAPI.login({
+      const response = await authAPI.login({
         username: form.username,
         password: form.password,
       });
 
-      console.log("Logged in:", user);
+      // saving the token
+      localStorage.setItem("authToken", response.token);
+
+      navigate("/dashboard");
     } catch (err: unknown) {
       if (typeof err === "string") {
         setError("Login Failed");
@@ -59,7 +62,9 @@ export function LoginForm() {
             Enter your info to log in to Fragments
           </CardDescription>
           <CardAction>
-            <Button variant="default" onClick={() => navigate("/register")}>Sign Up</Button>
+            <Button variant="default" onClick={() => navigate("/register")}>
+              Sign Up
+            </Button>
           </CardAction>
         </CardHeader>
 
@@ -81,10 +86,8 @@ export function LoginForm() {
                 id="password"
                 type="password"
                 value={form.password}
-                onChange={(e) =>
-                  setForm({ ...form, password: e.target.value })
-                }
-              required
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                required
               />
             </div>
 

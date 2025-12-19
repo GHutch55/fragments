@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -55,6 +56,7 @@ func (h *SnippetHandler) CreateSnippet(w http.ResponseWriter, r *http.Request) {
 
 	err = database.CreateSnippet(h.DB, &newSnippet)
 	if err != nil {
+		log.Printf("Error creating snippet in database: %v", err)
 		if errors.Is(err, database.ErrDatabaseError) {
 			SendError(w, "Unable to process request at this time", http.StatusInternalServerError)
 			return
