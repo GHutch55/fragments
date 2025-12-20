@@ -30,6 +30,7 @@ export interface Snippet {
   content: string;
   language: string;
   is_favorite: boolean;
+  tags?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -100,6 +101,7 @@ export interface CreateSnippetInput {
   content: string;
   language: string;
   folder_id?: number | null;
+  tags?: string[];
 }
 
 export interface UpdateSnippetInput {
@@ -109,6 +111,7 @@ export interface UpdateSnippetInput {
   language?: string;
   is_favorite?: boolean;
   folder_id?: number | null;
+  tags?: string[];
 }
 
 // Tags

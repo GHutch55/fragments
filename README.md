@@ -39,8 +39,7 @@ fragments/
 - [x] REST API endpoints
 - [x] Search functionality
 - [x] Web interface
-- [ ] Tag management
-- [ ] Import/export features
+- [x] Tag management
 
 ## Contributing
 

@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, FolderPlus } from "lucide-react";
+import { Plus, FolderPlus, LogOut, Search, X } from "lucide-react";
 import { useFolders } from "@/hooks/useFolders";
 import type { CreateFolderInput } from "@/api/types";
 
@@ -29,6 +29,12 @@ export function Dashboard() {
   const { folders, createFolder } = useFolders();
 
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const handleLogout = () => {
+    localStorage.removeItem("authToken");
+    navigate("/login");
+  };
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +72,25 @@ export function Dashboard() {
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-semibold tracking-tight">Fragments</h1>
+
+            {/* Search Bar */}
+            <div className="relative w-96">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search snippets..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-9"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -81,6 +106,10 @@ export function Dashboard() {
               <Plus className="h-4 w-4 mr-2" />
               New Snippet
             </Button>
+            <Button size="sm" variant="ghost" onClick={handleLogout}>
+              <LogOut className="h-4 w-4 mr-2" />
+              Logout
+            </Button>
           </div>
         </div>
       </header>
@@ -89,6 +118,7 @@ export function Dashboard() {
       <main className="flex-1 overflow-auto">
         <div className="max-w-6xl mx-auto p-6">
           <FileTree
+            searchQuery={searchQuery}
             onCreateFolder={() => setFolderDialogOpen(true)}
             onCreateSnippet={() => navigate("/editor")}
           />

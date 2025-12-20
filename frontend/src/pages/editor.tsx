@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Save, X, Loader2 } from "lucide-react";
+import { Save, X, Loader2, Plus as PlusIcon, XCircle } from "lucide-react";
 import { useSnippets } from "@/hooks/useSnippets";
 import { useFolders } from "@/hooks/useFolders";
 import { snippetsAPI } from "@/api/snippets";
@@ -32,6 +32,20 @@ export function EditorPage() {
   const [content, setContent] = useState("// Start coding...");
   const [language, setLanguage] = useState("javascript");
   const [folderId, setFolderId] = useState<number | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+
+  const addTag = () => {
+    const trimmed = tagInput.trim();
+    if (trimmed && !tags.includes(trimmed)) {
+      setTags([...tags, trimmed]);
+      setTagInput("");
+    }
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    setTags(tags.filter((tag) => tag !== tagToRemove));
+  };
 
   // Load snippet if editing
   useEffect(() => {
@@ -45,6 +59,7 @@ export function EditorPage() {
           setContent(snippet.content);
           setLanguage(snippet.language);
           setFolderId(snippet.folder_id ?? null);
+          setTags(snippet.tags ?? []);
         })
         .catch((err) => {
           setError(
@@ -71,13 +86,14 @@ export function EditorPage() {
 
     try {
       if (id) {
-        // Update existing snippet (including folder)
+        // Update existing snippet (including folder and tags)
         await updateSnippet(parseInt(id), {
           title,
           description: description || undefined,
           content,
           language,
           folder_id: folderId,
+          tags: tags.length > 0 ? tags : undefined,
         });
       } else {
         // Create new snippet
@@ -87,10 +103,12 @@ export function EditorPage() {
           content,
           language,
           folder_id: folderId,
+          tags: tags.length > 0 ? tags : undefined,
         });
       }
       navigate("/dashboard");
     } catch (err) {
+      console.error("Save error:", err);
       const errorMessage =
         err instanceof Error ? err.message : "Failed to save snippet";
       setError(errorMessage);
@@ -127,6 +145,46 @@ export function EditorPage() {
                   onChange={(e) => setDescription(e.target.value)}
                   className="text-sm"
                 />
+
+                {/* Tags */}
+                <div className="flex flex-wrap gap-2 items-center">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-primary/10 text-primary rounded-md"
+                    >
+                      {tag}
+                      <button
+                        onClick={() => removeTag(tag)}
+                        className="hover:text-primary/80"
+                      >
+                        <XCircle className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <div className="flex items-center gap-1">
+                    <Input
+                      placeholder="Add tag..."
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addTag();
+                        }
+                      }}
+                      className="text-xs w-32 h-7"
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={addTag}
+                      className="h-7 w-7 p-0"
+                    >
+                      <PlusIcon className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
 

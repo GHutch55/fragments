@@ -37,10 +37,11 @@ export function LoginForm() {
         password: form.password,
       });
 
-      // saving the token
+      localStorage.removeItem("authToken");
       localStorage.setItem("authToken", response.token);
 
-      navigate("/dashboard");
+      // Force a full page reload to clear all state
+      window.location.href = "/dashboard";
     } catch (err: unknown) {
       if (typeof err === "string") {
         setError("Login Failed");
