@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/GHutch55/fragments/backend/api/v1/database"
@@ -26,7 +25,7 @@ func main() {
 	log.Println("2. Config loaded successfully")
 
 	// JWT secret is required - fail fast if not provided
-	jwtSecret := os.Getenv("JWT_SECRET")
+	jwtSecret := cfg.JWTSecret
 	if jwtSecret == "" {
 		log.Fatal("JWT_SECRET environment variable is required")
 	}
