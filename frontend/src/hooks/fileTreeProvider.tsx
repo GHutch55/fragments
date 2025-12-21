@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { foldersAPI } from "@/api/folders";
 import { snippetsAPI } from "@/api/snippets";
 import type { Folder, Snippet } from "@/api/types";
@@ -10,51 +10,41 @@ export function FileTreeProvider(props: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Get token from localStorage to trigger reload when it changes
-  const authToken = localStorage.getItem("authToken");
+  // Loads folders & snippets from API
+  const loadAll = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [foldersData, snippetsResponse] = await Promise.all([
+        foldersAPI.getAll(),
+        snippetsAPI.getAll({ limit: "1000" }),
+      ]);
 
-  useEffect(() => {
-    if (!authToken) {
-      // If no token (logged out), reset state immediately
+      setFolders(Array.isArray(foldersData.data) ? foldersData.data : []);
+      setSnippets(
+        Array.isArray(snippetsResponse.data) ? snippetsResponse.data : [],
+      );
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load data");
       setFolders([]);
       setSnippets([]);
-      setError(null);
+    } finally {
       setLoading(false);
-      return;
     }
+  }, []);
 
-    async function loadAll() {
-      try {
-        setLoading(true);
-
-        const [foldersData, snippetsResponse] = await Promise.all([
-          foldersAPI.getAll(),
-          snippetsAPI.getAll({ limit: "1000" }),
-        ]);
-
-        setFolders(Array.isArray(foldersData.data) ? foldersData.data : []);
-        setSnippets(
-          Array.isArray(snippetsResponse.data) ? snippetsResponse.data : [],
-        );
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load data");
-        setFolders([]);
-        setSnippets([]);
-      } finally {
-        setLoading(false);
-      }
-    }
-
+  // Load data once on mount
+  useEffect(() => {
     loadAll();
-  }, [authToken]); // Re-run when authToken changes (login/logout)
+  }, [loadAll]);
 
-  function reset() {
+  // Resets context state to initial empty values
+  const reset = useCallback(() => {
     setFolders([]);
     setSnippets([]);
     setError(null);
     setLoading(false);
-  }
+  }, []);
 
   return (
     <FileTreeContext.Provider
@@ -66,6 +56,7 @@ export function FileTreeProvider(props: { children: React.ReactNode }) {
         setFolders,
         setSnippets,
         reset,
+        loadAll,
       }}
     >
       {props.children}

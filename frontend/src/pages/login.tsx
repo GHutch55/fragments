@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useContext } from "react";
 import { authAPI } from "@/api";
 import { useNavigate } from "react-router-dom";
 import type { LoginInput } from "@/api";
+import { FileTreeContext } from "@/hooks/fileTreeContext";
 
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -25,10 +26,12 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const fileTree = useContext(FileTreeContext);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
 
     try {
       setLoading(true);
@@ -37,9 +40,9 @@ export function LoginForm() {
         password: form.password,
       });
 
-      localStorage.removeItem("authToken");
       localStorage.setItem("authToken", response.token);
 
+      fileTree?.loadAll();
       navigate("/dashboard");
     } catch (err: unknown) {
       if (typeof err === "string") {

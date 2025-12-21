@@ -6,9 +6,10 @@ export interface FileTreeContextType {
   snippets: Snippet[];
   loading: boolean;
   error: string | null;
-  setFolders: (value: Folder[] | ((prev: Folder[]) => Folder[])) => void;
-  setSnippets: (value: Snippet[] | ((prev: Snippet[]) => Snippet[])) => void;
+  setFolders: React.Dispatch<React.SetStateAction<Folder[]>>;
+  setSnippets: React.Dispatch<React.SetStateAction<Snippet[]>>;
   reset: () => void;
+  loadAll: () => Promise<void>;
 }
 
 export const FileTreeContext = createContext<FileTreeContextType | null>(null);
