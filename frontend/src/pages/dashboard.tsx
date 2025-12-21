@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileTree } from "@/components/ui/filetree";
+import { FileTreeContext } from "@/hooks/fileTreeContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +26,7 @@ import { useFolders } from "@/hooks/useFolders";
 import type { CreateFolderInput } from "@/api/types";
 
 export function Dashboard() {
+  const fileTree = useContext(FileTreeContext);
   const navigate = useNavigate();
   const { folders, createFolder } = useFolders();
 
@@ -33,7 +35,8 @@ export function Dashboard() {
 
   const handleLogout = () => {
     localStorage.removeItem("authToken");
-    window.location.href = "/login";
+    fileTree?.reset();
+    navigate("/login");
   };
 
   const [loading, setLoading] = useState(false);

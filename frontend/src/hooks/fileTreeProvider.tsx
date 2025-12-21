@@ -36,6 +36,13 @@ export function FileTreeProvider(props: { children: React.ReactNode }) {
     loadAll();
   }, []);
 
+  function reset() {
+    setFolders([]);
+    setSnippets([]);
+    setError(null);
+    setLoading(false);
+  }
+
   return (
     <FileTreeContext.Provider
       value={{
@@ -45,6 +52,7 @@ export function FileTreeProvider(props: { children: React.ReactNode }) {
         error,
         setFolders,
         setSnippets,
+        reset,
       }}
     >
       {props.children}

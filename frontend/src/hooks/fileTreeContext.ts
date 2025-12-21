@@ -8,6 +8,7 @@ export interface FileTreeContextType {
   error: string | null;
   setFolders: (value: Folder[] | ((prev: Folder[]) => Folder[])) => void;
   setSnippets: (value: Snippet[] | ((prev: Snippet[]) => Snippet[])) => void;
+  reset: () => void;
 }
 
 export const FileTreeContext = createContext<FileTreeContextType | null>(null);
