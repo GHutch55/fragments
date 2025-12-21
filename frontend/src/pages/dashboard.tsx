@@ -33,7 +33,7 @@ export function Dashboard() {
 
   const handleLogout = () => {
     localStorage.removeItem("authToken");
-    navigate("/login");
+    window.location.href = "/login";
   };
 
   const [loading, setLoading] = useState(false);

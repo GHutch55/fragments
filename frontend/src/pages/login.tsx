@@ -40,8 +40,7 @@ export function LoginForm() {
       localStorage.removeItem("authToken");
       localStorage.setItem("authToken", response.token);
 
-      // Force a full page reload to clear all state
-      window.location.href = "/dashboard";
+      navigate("/dashboard");
     } catch (err: unknown) {
       if (typeof err === "string") {
         setError("Login Failed");
