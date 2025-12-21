@@ -35,22 +35,19 @@ func main() {
 	log.Println("3. JWT secret validated")
 
 	log.Printf("4. Attempting to connect to database at: %s", cfg.DatabasePath)
-	db, err := database.Connect(cfg.DatabasePath)
+	pool, err := database.Connect(cfg.DatabasePath)
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	defer db.Close()
+	defer pool.Close()
 	log.Println("5. Database connected successfully")
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(time.Hour)
 
 	// Create middleware and handlers
-	authMiddleware := middleware.NewAuthMiddleware(db, jwtSecret)
-	userHandler := &handlers.UserHandler{DB: db}
-	snippetHandler := &handlers.SnippetHandler{DB: db}
-	folderHandler := &handlers.FolderHandler{DB: db}
-	authHandler := handlers.NewAuthHandler(db, authMiddleware)
+	authMiddleware := middleware.NewAuthMiddleware(pool, jwtSecret)
+	userHandler := &handlers.UserHandler{DB: pool}
+	snippetHandler := &handlers.SnippetHandler{DB: pool}
+	folderHandler := &handlers.FolderHandler{DB: pool}
+	authHandler := handlers.NewAuthHandler(pool, authMiddleware)
 
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Logger)
@@ -98,10 +95,6 @@ func main() {
 				r.Get("/me", userHandler.GetCurrentUser)
 				r.Put("/me", userHandler.UpdateCurrentUser)
 				r.Delete("/me", userHandler.DeleteCurrentUser)
-
-				// Admin-only routes (if I need them later)
-				// r.Get("/{id}", userHandler.GetUser)
-				// r.Get("/", userHandler.GetUsers)
 			})
 
 			// Snippet routes

@@ -1,60 +1,51 @@
 -- Users table (simple session-based accounts)
 CREATE TABLE users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT, -- Changed from password to password_hash
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- Folders for organizing snippets (optional hierarchy)
 CREATE TABLE folders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT,
-    parent_id INTEGER, -- for nested folders (nullable)
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE SET NULL,
+    parent_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, name, parent_id) -- prevent duplicate folder names in same location
 );
 
 -- Main snippets table
 CREATE TABLE snippets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    folder_id INTEGER, -- nullable, snippets can exist without folders
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     description TEXT,
     content TEXT NOT NULL,
     language TEXT NOT NULL DEFAULT 'text', -- 'javascript', 'python', 'go', etc.
     is_favorite BOOLEAN DEFAULT FALSE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- Tags for flexible organization
 CREATE TABLE tags (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     color TEXT, -- hex color for UI (optional)
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, name) -- users can't have duplicate tag names
 );
 
 -- Many-to-many relationship between snippets and tags
 CREATE TABLE snippet_tags (
-    snippet_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    PRIMARY KEY (snippet_id, tag_id),
-    FOREIGN KEY (snippet_id) REFERENCES snippets(id) ON DELETE CASCADE,
-    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    snippet_id INTEGER NOT NULL REFERENCES snippets(id) ON DELETE CASCADE,
+    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (snippet_id, tag_id)
 );
 
 -- Indexes for performance
@@ -65,26 +56,13 @@ CREATE INDEX idx_snippets_created_at ON snippets(created_at DESC);
 CREATE INDEX idx_folders_user_id ON folders(user_id);
 CREATE INDEX idx_tags_user_id ON tags(user_id);
 
--- Full-text search support (SQLite FTS5)
-CREATE VIRTUAL TABLE snippets_fts USING fts5(
-    title, 
-    description, 
-    content,
-    content_id UNINDEXED -- reference back to snippets.id
-);
+-- Add a tsvector column for full-text search
+ALTER TABLE snippets ADD COLUMN document_with_weights tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(description, '')), 'B') ||
+    setweight(to_tsvector('english', coalesce(content, '')), 'C')
+) STORED;
 
--- Trigger to keep FTS table in sync
-CREATE TRIGGER snippets_fts_insert AFTER INSERT ON snippets BEGIN
-    INSERT INTO snippets_fts(title, description, content, content_id) 
-    VALUES (new.title, new.description, new.content, new.id);
-END;
+-- Create GIN index on the tsvector column for fast search
+CREATE INDEX idx_snippets_fts ON snippets USING GIN (document_with_weights);
 
-CREATE TRIGGER snippets_fts_update AFTER UPDATE ON snippets BEGIN
-    UPDATE snippets_fts 
-    SET title = new.title, description = new.description, content = new.content
-    WHERE content_id = new.id;
-END;
-
-CREATE TRIGGER snippets_fts_delete AFTER DELETE ON snippets BEGIN
-    DELETE FROM snippets_fts WHERE content_id = old.id;
-END;

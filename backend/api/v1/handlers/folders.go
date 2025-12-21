@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"github.com/GHutch55/fragments/backend/api/v1/middleware"
 	"github.com/GHutch55/fragments/backend/api/v1/models"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 )
 
 type FolderHandler struct {
-	DB *sql.DB
+	DB *pgxpool.Pool
 }
 
 func (h *FolderHandler) CreateFolder(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +49,7 @@ func (h *FolderHandler) CreateFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = database.CreateFolder(h.DB, &newFolder)
+	err = database.CreateFolder(r.Context(), h.DB, &newFolder)
 	if err != nil {
 		if strings.Contains(err.Error(), "already exists") {
 			SendError(w, "Folder name already exists in this location", http.StatusConflict)
@@ -97,7 +97,7 @@ func (h *FolderHandler) GetFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gotFolder, err := database.GetFolder(h.DB, folderID)
+	gotFolder, err := database.GetFolder(r.Context(), h.DB, folderID)
 	if err != nil {
 		if errors.Is(err, database.ErrNoFolderError) {
 			SendError(w, "Folder not found", http.StatusNotFound)
@@ -159,7 +159,7 @@ func (h *FolderHandler) GetFolders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only get folders for the authenticated user
-	folders, total, err := database.GetFolders(h.DB, page, limit, user.ID, parentID)
+	folders, total, err := database.GetFolders(r.Context(), h.DB, page, limit, user.ID, parentID)
 	if err != nil {
 		if errors.Is(err, database.ErrDatabaseError) {
 			SendError(w, "Unable to process request at this time", http.StatusInternalServerError)
@@ -212,7 +212,7 @@ func (h *FolderHandler) UpdateFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if folder exists and user owns it
-	existingFolder, err := database.GetFolder(h.DB, folderID)
+	existingFolder, err := database.GetFolder(r.Context(), h.DB, folderID)
 	if err != nil {
 		if errors.Is(err, database.ErrNoFolderError) {
 			SendError(w, "Folder not found", http.StatusNotFound)
@@ -247,7 +247,7 @@ func (h *FolderHandler) UpdateFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = database.UpdateFolder(h.DB, folderID, &updateFolder)
+	err = database.UpdateFolder(r.Context(), h.DB, folderID, &updateFolder)
 	if err != nil {
 		if errors.Is(err, database.ErrNoFolderError) {
 			SendError(w, "Folder not found", http.StatusNotFound)
@@ -300,7 +300,7 @@ func (h *FolderHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if folder exists and user owns it
-	existingFolder, err := database.GetFolder(h.DB, folderID)
+	existingFolder, err := database.GetFolder(r.Context(), h.DB, folderID)
 	if err != nil {
 		if errors.Is(err, database.ErrNoFolderError) {
 			SendError(w, "Folder not found", http.StatusNotFound)
@@ -320,7 +320,7 @@ func (h *FolderHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = database.DeleteFolder(h.DB, folderID)
+	err = database.DeleteFolder(r.Context(), h.DB, folderID)
 	if err != nil {
 		if errors.Is(err, database.ErrNoFolderError) {
 			SendError(w, "Folder not found", http.StatusNotFound)
@@ -392,3 +392,4 @@ func (h *FolderHandler) validateFolder(folder *models.Folder) error {
 
 	return nil
 }
+

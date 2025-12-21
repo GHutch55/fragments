@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"github.com/GHutch55/fragments/backend/api/v1/database"
 	"github.com/GHutch55/fragments/backend/api/v1/models"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type contextKey string
@@ -21,7 +21,7 @@ const UserContextKey contextKey = "user"
 
 // AuthMiddleware handles JWT authentication
 type AuthMiddleware struct {
-	DB        *sql.DB
+	DB        *pgxpool.Pool
 	JWTSecret string
 }
 
@@ -39,9 +39,9 @@ type ErrorResponse struct {
 }
 
 // NewAuthMiddleware creates a new AuthMiddleware instance
-func NewAuthMiddleware(db *sql.DB, jwtSecret string) *AuthMiddleware {
+func NewAuthMiddleware(pool *pgxpool.Pool, jwtSecret string) *AuthMiddleware {
 	return &AuthMiddleware{
-		DB:        db,
+		DB:        pool,
 		JWTSecret: jwtSecret,
 	}
 }
@@ -131,9 +131,9 @@ func (am *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		// Load user from database
+		// Load user from database with context
 		var user models.User
-		err = database.GetUser(am.DB, claims.UserID, &user)
+		err = database.GetUser(r.Context(), am.DB, claims.UserID, &user)
 		if err != nil {
 			// Check for specific database errors
 			if errors.Is(err, database.ErrNoUserError) || strings.Contains(err.Error(), "not found") {
@@ -177,7 +177,7 @@ func (am *AuthMiddleware) OptionalAuth(next http.Handler) http.Handler {
 		if len(bearerToken) == 2 && strings.EqualFold(bearerToken[0], "Bearer") {
 			if claims, err := am.ValidateToken(bearerToken[1]); err == nil {
 				var user models.User
-				if err := database.GetUser(am.DB, claims.UserID, &user); err == nil {
+				if err := database.GetUser(r.Context(), am.DB, claims.UserID, &user); err == nil {
 					if user.Username == claims.Username {
 						ctx := context.WithValue(r.Context(), UserContextKey, &user)
 						next.ServeHTTP(w, r.WithContext(ctx))

@@ -1,26 +1,25 @@
 package database
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func Connect(dbPath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", dbPath)
+func Connect(connString string) (*pgxpool.Pool, error) {
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, connString)
 	if err != nil {
+		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+	}
+
+	// Ping the database to verify connection
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	if err2 := db.Ping(); err2 != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err2)
-	}
-
-	_, err3 := db.Exec(`PRAGMA journal_mode = WAL;`)
-	if err3 != nil {
-		return nil, fmt.Errorf("failed to set journal mode: %w", err3)
-	}
-
-	return db, nil
+	return pool, nil
 }

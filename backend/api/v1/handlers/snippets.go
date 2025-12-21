@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
@@ -14,6 +13,7 @@ import (
 	"github.com/GHutch55/fragments/backend/api/v1/middleware"
 	"github.com/GHutch55/fragments/backend/api/v1/models"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 )
 
 type SnippetHandler struct {
-	DB *sql.DB
+	DB *pgxpool.Pool
 }
 
 func (h *SnippetHandler) CreateSnippet(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +54,7 @@ func (h *SnippetHandler) CreateSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = database.CreateSnippet(h.DB, &newSnippet)
+	err = database.CreateSnippet(r.Context(), h.DB, &newSnippet)
 	if err != nil {
 		log.Printf("Error creating snippet in database: %v", err)
 		if errors.Is(err, database.ErrDatabaseError) {
@@ -91,7 +91,7 @@ func (h *SnippetHandler) GetSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gotSnippet, err := database.GetSnippet(h.DB, snippetID)
+	gotSnippet, err := database.GetSnippet(r.Context(), h.DB, snippetID)
 	if err != nil {
 		if errors.Is(err, database.ErrNoSnippetError) {
 			SendError(w, "Snippet not found", http.StatusNotFound)
@@ -144,7 +144,7 @@ func (h *SnippetHandler) GetSnippets(w http.ResponseWriter, r *http.Request) {
 	search := query.Get("search")
 
 	// Only get snippets for the authenticated user
-	snippets, total, err := database.GetSnippets(h.DB, page, limit, user.ID, search)
+	snippets, total, err := database.GetSnippets(r.Context(), h.DB, page, limit, user.ID, search)
 	if err != nil {
 		if errors.Is(err, database.ErrDatabaseError) {
 			SendError(w, "Unable to process request at this time", http.StatusInternalServerError)
@@ -197,7 +197,7 @@ func (h *SnippetHandler) UpdateSnippet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if snippet exists and user owns it
-	existingSnippet, err := database.GetSnippet(h.DB, snippetID)
+	existingSnippet, err := database.GetSnippet(r.Context(), h.DB, snippetID)
 	if err != nil {
 		if errors.Is(err, database.ErrNoSnippetError) {
 			SendError(w, "Snippet not found", http.StatusNotFound)
@@ -232,7 +232,7 @@ func (h *SnippetHandler) UpdateSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = database.UpdateSnippet(h.DB, snippetID, &updateSnippet)
+	err = database.UpdateSnippet(r.Context(), h.DB, snippetID, &updateSnippet)
 	if err != nil {
 		if errors.Is(err, database.ErrNoSnippetError) {
 			SendError(w, "Snippet not found", http.StatusNotFound)
@@ -273,7 +273,7 @@ func (h *SnippetHandler) DeleteSnippet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if snippet exists and user owns it
-	existingSnippet, err := database.GetSnippet(h.DB, snippetID)
+	existingSnippet, err := database.GetSnippet(r.Context(), h.DB, snippetID)
 	if err != nil {
 		if errors.Is(err, database.ErrNoSnippetError) {
 			SendError(w, "Snippet not found", http.StatusNotFound)
@@ -293,7 +293,7 @@ func (h *SnippetHandler) DeleteSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = database.DeleteSnippet(h.DB, snippetID)
+	err = database.DeleteSnippet(r.Context(), h.DB, snippetID)
 	if err != nil {
 		if errors.Is(err, database.ErrNoSnippetError) {
 			SendError(w, "Snippet not found", http.StatusNotFound)

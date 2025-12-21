@@ -1,12 +1,14 @@
 package database
 
 import (
-	"database/sql"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/GHutch55/fragments/backend/api/v1/models"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -15,11 +17,11 @@ var (
 	ErrNoUserError    = errors.New("user does not exist")
 )
 
-func CreateUser(db *sql.DB, user *models.User) error {
+func CreateUser(ctx context.Context, pool *pgxpool.Pool, user *models.User) error {
 	// Check if username exists first
 	var count int
-	checkQuery := "SELECT COUNT(*) FROM users WHERE username = ?"
-	err := db.QueryRow(checkQuery, user.Username).Scan(&count)
+	checkQuery := "SELECT COUNT(*) FROM users WHERE username = $1"
+	err := pool.QueryRow(ctx, checkQuery, user.Username).Scan(&count)
 	if err != nil {
 		fmt.Printf("Database error during username check: %v\n", err)
 		return fmt.Errorf("%w: failed to check username availability", ErrDatabaseError)
@@ -29,73 +31,72 @@ func CreateUser(db *sql.DB, user *models.User) error {
 		return fmt.Errorf("%w: username '%s' is already taken", ErrUsernameExists, user.Username)
 	}
 
-	// Insert the new user
-	insertQuery := `
-		INSERT INTO users (username)
-		VALUES (?)`
-
-	result, err := db.Exec(insertQuery, user.Username)
+	// Insert the new user and return the new ID
+	insertQuery := `INSERT INTO users (username) VALUES ($1) RETURNING id, created_at, updated_at`
+	err = pool.QueryRow(ctx, insertQuery, user.Username).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
-		// Handle constraint violation as backup (race condition case)
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
 			return fmt.Errorf("%w: username became unavailable", ErrUsernameExists)
 		}
 		fmt.Printf("Database error during user creation: %v\n", err)
 		return fmt.Errorf("%w: failed to create user", ErrDatabaseError)
 	}
 
-	// Get the user ID
-	userID, err := result.LastInsertId()
-	if err != nil {
-		fmt.Printf("Error getting last insert ID: %v\n", err)
-		return fmt.Errorf("%w: failed to retrieve user ID", ErrDatabaseError)
-	}
-
-	// Populate the user struct with the created data
-	return populateUserFromDB(db, userID, user)
-}
-
-func GetUser(db *sql.DB, userID int64, user *models.User) error {
-	err := populateUserFromDB(db, userID, user)
-	if err != nil {
-		// Check if it's a "not found" error specifically
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("user with ID %d not found", userID)
-		}
-		return err // Already wrapped by populateUserFromDB
-	}
 	return nil
 }
 
-func GetUsers(db *sql.DB, page, limit int, search string) ([]models.User, int, error) {
-	offset := (page - 1) * limit
+func GetUser(ctx context.Context, pool *pgxpool.Pool, userID int64, user *models.User) error {
+	selectQuery := `
+		SELECT id, username, created_at, updated_at
+		FROM users WHERE id = $1`
 
-	whereClause := ""
-	args := []interface{}{}
-	if search != "" {
-		whereClause = "WHERE username LIKE ?"
-		searchPattern := "%" + search + "%"
-		args = append(args, searchPattern, searchPattern)
+	err := pool.QueryRow(ctx, selectQuery, userID).Scan(
+		&user.ID,
+		&user.Username,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNoUserError
+		}
+		fmt.Printf("Database error retrieving user ID %d: %v\n", userID, err)
+		return fmt.Errorf("%w: failed to retrieve user", ErrDatabaseError)
 	}
 
-	// Get total count
-	var total int
+	return nil
+}
+
+func GetUsers(ctx context.Context, pool *pgxpool.Pool, page, limit int, search string) ([]models.User, int, error) {
+	offset := (page - 1) * limit
+	args := []interface{}{}
+	whereClause := ""
+
+	argPosition := 1
+	if search != "" {
+		whereClause = fmt.Sprintf("WHERE username ILIKE $%d", argPosition)
+		args = append(args, "%"+search+"%")
+		argPosition++
+	}
+
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users %s", whereClause)
-	err := db.QueryRow(countQuery, args...).Scan(&total)
+	var total int
+	err := pool.QueryRow(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		fmt.Printf("Database error getting user count: %v\n", err)
 		return nil, 0, fmt.Errorf("%w: failed to get user count", ErrDatabaseError)
 	}
 
-	// Get actual users
 	dataQuery := fmt.Sprintf(`
-		SELECT id, username, created_at, updated_at 
-		FROM users %s 
-		ORDER BY created_at DESC 
-		LIMIT ? OFFSET ?`, whereClause)
-	queryArgs := append(args, limit, offset)
+		SELECT id, username, created_at, updated_at
+		FROM users
+		%s
+		ORDER BY created_at DESC
+		LIMIT $%d OFFSET $%d`, whereClause, argPosition, argPosition+1)
 
-	rows, err := db.Query(dataQuery, queryArgs...)
+	args = append(args, limit, offset)
+
+	rows, err := pool.Query(ctx, dataQuery, args...)
 	if err != nil {
 		fmt.Printf("Database error getting users: %v\n", err)
 		return nil, 0, fmt.Errorf("%w: failed to get users", ErrDatabaseError)
@@ -105,13 +106,11 @@ func GetUsers(db *sql.DB, page, limit int, search string) ([]models.User, int, e
 	var users []models.User
 	for rows.Next() {
 		var user models.User
-
 		err := rows.Scan(&user.ID, &user.Username, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
 			fmt.Printf("Database error scanning user row: %v\n", err)
 			return nil, 0, fmt.Errorf("%w: failed to scan user data", ErrDatabaseError)
 		}
-
 		users = append(users, user)
 	}
 
@@ -123,21 +122,15 @@ func GetUsers(db *sql.DB, page, limit int, search string) ([]models.User, int, e
 	return users, total, nil
 }
 
-func DeleteUser(db *sql.DB, userID int64) error {
-	deleteQuery := "DELETE FROM users WHERE id = ?"
-	result, err := db.Exec(deleteQuery, userID)
+func DeleteUser(ctx context.Context, pool *pgxpool.Pool, userID int64) error {
+	deleteQuery := "DELETE FROM users WHERE id = $1"
+	result, err := pool.Exec(ctx, deleteQuery, userID)
 	if err != nil {
 		fmt.Printf("Database error deleting user ID %d: %v\n", userID, err)
 		return fmt.Errorf("%w: failed to delete user", ErrDatabaseError)
 	}
 
-	// Check if any rows were actually deleted
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		fmt.Printf("Error checking rows affected for delete: %v\n", err)
-		return fmt.Errorf("%w: failed to verify deletion", ErrDatabaseError)
-	}
-
+	rowsAffected := result.RowsAffected()
 	if rowsAffected == 0 {
 		return fmt.Errorf("user with ID %d does not exist: %w", userID, ErrNoUserError)
 	}
@@ -145,40 +138,37 @@ func DeleteUser(db *sql.DB, userID int64) error {
 	return nil
 }
 
-func UpdateUser(db *sql.DB, userID int64, user *models.User) error {
-	// Start a transaction for atomic operations
-	tx, err := db.Begin()
+func UpdateUser(ctx context.Context, pool *pgxpool.Pool, userID int64, user *models.User) error {
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		fmt.Printf("Error starting transaction: %v\n", err)
 		return fmt.Errorf("%w: failed to start transaction", ErrDatabaseError)
 	}
-	defer tx.Rollback() // This will be a no-op if we commit successfully
+	defer tx.Rollback(ctx)
 
-	// Check if user exists and get current data
 	selectQuery := `
-		SELECT id, username,  created_at, updated_at
-		FROM users WHERE id = ?`
+		SELECT id, username, created_at, updated_at
+		FROM users WHERE id = $1`
 
 	var currentUser models.User
-	err = tx.QueryRow(selectQuery, userID).Scan(
+	err = tx.QueryRow(ctx, selectQuery, userID).Scan(
 		&currentUser.ID,
 		&currentUser.Username,
 		&currentUser.CreatedAt,
 		&currentUser.UpdatedAt,
 	)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("user with ID %d does not exist: %w", userID, ErrNoUserError)
 		}
 		fmt.Printf("Database error retrieving user for update: %v\n", err)
 		return fmt.Errorf("%w: failed to retrieve user for update", ErrDatabaseError)
 	}
 
-	// Check if username is changing and if new username already exists
 	if user.Username != currentUser.Username {
 		var count int
-		checkQuery := "SELECT COUNT(*) FROM users WHERE username = ? AND id != ?"
-		err = tx.QueryRow(checkQuery, user.Username, userID).Scan(&count)
+		checkQuery := "SELECT COUNT(*) FROM users WHERE username = $1 AND id != $2"
+		err = tx.QueryRow(ctx, checkQuery, user.Username, userID).Scan(&count)
 		if err != nil {
 			fmt.Printf("Database error checking username availability: %v\n", err)
 			return fmt.Errorf("%w: failed to check username availability", ErrDatabaseError)
@@ -189,56 +179,25 @@ func UpdateUser(db *sql.DB, userID int64, user *models.User) error {
 	}
 
 	updateQuery := `
-		UPDATE users 
-		SET username = ?, updated_at = CURRENT_TIMESTAMP 
-		WHERE id = ?`
+		UPDATE users
+		SET username = $1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2
+		RETURNING created_at, updated_at`
 
-	_, err = tx.Exec(updateQuery, user.Username, userID)
+	err = tx.QueryRow(ctx, updateQuery, user.Username, userID).Scan(&user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
 			return fmt.Errorf("%w: username became unavailable", ErrUsernameExists)
 		}
 		fmt.Printf("Database error updating user: %v\n", err)
 		return fmt.Errorf("%w: failed to update user", ErrDatabaseError)
 	}
 
-	err = tx.QueryRow(selectQuery, userID).Scan(
-		&user.ID,
-		&user.Username,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
-	if err != nil {
-		fmt.Printf("Error retrieving updated user: %v\n", err)
-		return fmt.Errorf("%w: failed to retrieve updated user", ErrDatabaseError)
-	}
+	user.ID = userID
 
-	// Commit the transaction
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		fmt.Printf("Error committing transaction: %v\n", err)
 		return fmt.Errorf("%w: failed to commit update", ErrDatabaseError)
-	}
-
-	return nil
-}
-
-func populateUserFromDB(db *sql.DB, userID int64, user *models.User) error {
-	selectQuery := `
-		SELECT id, username, created_at, updated_at
-		FROM users WHERE id = ?`
-
-	err := db.QueryRow(selectQuery, userID).Scan(
-		&user.ID,
-		&user.Username,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return sql.ErrNoRows
-		}
-		fmt.Printf("Database error retrieving user ID %d: %v\n", userID, err)
-		return fmt.Errorf("%w: failed to retrieve user", ErrDatabaseError)
 	}
 
 	return nil
@@ -250,7 +209,7 @@ func IsUsernameExistsError(err error) bool {
 }
 
 func IsUserNotFoundError(err error) bool {
-	return errors.Is(err, ErrNoUserError) || errors.Is(err, sql.ErrNoRows)
+	return errors.Is(err, ErrNoUserError) || errors.Is(err, pgx.ErrNoRows)
 }
 
 // Extended user model for auth with password
@@ -259,11 +218,11 @@ type UserWithPassword struct {
 	Password string `json:"-"` // Don't include in JSON responses
 }
 
-func CreateUserWithPassword(db *sql.DB, user *UserWithPassword) error {
+func CreateUserWithPassword(ctx context.Context, pool *pgxpool.Pool, user *UserWithPassword) error {
 	// Check if username exists first
 	var count int
-	checkQuery := "SELECT COUNT(*) FROM users WHERE username = ?"
-	err := db.QueryRow(checkQuery, user.Username).Scan(&count)
+	checkQuery := "SELECT COUNT(*) FROM users WHERE username = $1"
+	err := pool.QueryRow(ctx, checkQuery, user.Username).Scan(&count)
 	if err != nil {
 		fmt.Printf("Database error during username check: %v\n", err)
 		return fmt.Errorf("%w: failed to check username availability", ErrDatabaseError)
@@ -273,36 +232,35 @@ func CreateUserWithPassword(db *sql.DB, user *UserWithPassword) error {
 		return fmt.Errorf("%w: username '%s' is already taken", ErrUsernameExists, user.Username)
 	}
 
-	// Insert the new user with password (requires schema update)
+	// Insert the new user with password and RETURNING id
 	insertQuery := `
-        INSERT INTO users (username,  password_hash)
-        VALUES (?, ?)`
+        INSERT INTO users (username, password_hash)
+        VALUES ($1, $2)
+        RETURNING id, created_at, updated_at`
 
-	result, err := db.Exec(insertQuery, user.Username, user.Password)
+	err = pool.QueryRow(ctx, insertQuery, user.Username, user.Password).Scan(
+		&user.ID,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
 			return fmt.Errorf("%w: username became unavailable", ErrUsernameExists)
 		}
 		fmt.Printf("Database error during user creation: %v\n", err)
 		return fmt.Errorf("%w: failed to create user", ErrDatabaseError)
 	}
 
-	userID, err := result.LastInsertId()
-	if err != nil {
-		fmt.Printf("Error getting last insert ID: %v\n", err)
-		return fmt.Errorf("%w: failed to retrieve user ID", ErrDatabaseError)
-	}
-
-	return populateUserFromDBWithPassword(db, userID, user)
+	return nil
 }
 
-func GetUserByUsername(db *sql.DB, username string) (*UserWithPassword, error) {
+func GetUserByUsername(ctx context.Context, pool *pgxpool.Pool, username string) (*UserWithPassword, error) {
 	selectQuery := `
-        SELECT id, username,  password_hash, created_at, updated_at
-        FROM users WHERE username = ?`
+        SELECT id, username, password_hash, created_at, updated_at
+        FROM users WHERE username = $1`
 
 	var user UserWithPassword
-	err := db.QueryRow(selectQuery, username).Scan(
+	err := pool.QueryRow(ctx, selectQuery, username).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Password,
@@ -310,7 +268,7 @@ func GetUserByUsername(db *sql.DB, username string) (*UserWithPassword, error) {
 		&user.UpdatedAt,
 	)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
 		}
 		fmt.Printf("Database error retrieving user by username: %v\n", err)
@@ -320,49 +278,21 @@ func GetUserByUsername(db *sql.DB, username string) (*UserWithPassword, error) {
 	return &user, nil
 }
 
-func UpdateUserPassword(db *sql.DB, userID int64, hashedPassword string) error {
+func UpdateUserPassword(ctx context.Context, pool *pgxpool.Pool, userID int64, hashedPassword string) error {
 	updateQuery := `
-        UPDATE users 
-        SET password_hash = ?, updated_at = CURRENT_TIMESTAMP 
-        WHERE id = ?`
+        UPDATE users
+        SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2`
 
-	result, err := db.Exec(updateQuery, hashedPassword, userID)
+	result, err := pool.Exec(ctx, updateQuery, hashedPassword, userID)
 	if err != nil {
 		fmt.Printf("Database error updating password for user ID %d: %v\n", userID, err)
 		return fmt.Errorf("%w: failed to update password", ErrDatabaseError)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		fmt.Printf("Error checking rows affected for password update: %v\n", err)
-		return fmt.Errorf("%w: failed to verify password update", ErrDatabaseError)
-	}
-
+	rowsAffected := result.RowsAffected()
 	if rowsAffected == 0 {
 		return fmt.Errorf("user with ID %d does not exist: %w", userID, ErrNoUserError)
-	}
-
-	return nil
-}
-
-func populateUserFromDBWithPassword(db *sql.DB, userID int64, user *UserWithPassword) error {
-	selectQuery := `
-        SELECT id, username,  password_hash, created_at, updated_at
-        FROM users WHERE id = ?`
-
-	err := db.QueryRow(selectQuery, userID).Scan(
-		&user.ID,
-		&user.Username,
-		&user.Password,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return sql.ErrNoRows
-		}
-		fmt.Printf("Database error retrieving user ID %d: %v\n", userID, err)
-		return fmt.Errorf("%w: failed to retrieve user", ErrDatabaseError)
 	}
 
 	return nil

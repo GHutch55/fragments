@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"html"
@@ -12,17 +11,18 @@ import (
 	"github.com/GHutch55/fragments/backend/api/v1/database"
 	"github.com/GHutch55/fragments/backend/api/v1/middleware"
 	"github.com/GHutch55/fragments/backend/api/v1/models"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandler struct {
-	DB             *sql.DB
+	DB             *pgxpool.Pool
 	AuthMiddleware *middleware.AuthMiddleware
 }
 
-func NewAuthHandler(db *sql.DB, authMiddleware *middleware.AuthMiddleware) *AuthHandler {
+func NewAuthHandler(pool *pgxpool.Pool, authMiddleware *middleware.AuthMiddleware) *AuthHandler {
 	return &AuthHandler{
-		DB:             db,
+		DB:             pool,
 		AuthMiddleware: authMiddleware,
 	}
 }
@@ -61,7 +61,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		Password: string(hashedPassword),
 	}
 
-	err = database.CreateUserWithPassword(h.DB, userWithPassword)
+	err = database.CreateUserWithPassword(r.Context(), h.DB, userWithPassword)
 	if err != nil {
 		if database.IsUsernameExistsError(err) {
 			SendError(w, "Username already exists", http.StatusConflict)
@@ -115,7 +115,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get user by username
-	user, err := database.GetUserByUsername(h.DB, loginReq.Username)
+	user, err := database.GetUserByUsername(r.Context(), h.DB, loginReq.Username)
 	if err != nil {
 		// Use generic message to prevent username enumeration
 		time.Sleep(100 * time.Millisecond) // delay to prevent timing attacks
@@ -198,7 +198,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current user with password from database
-	currentUser, err := database.GetUserByUsername(h.DB, user.Username)
+	currentUser, err := database.GetUserByUsername(r.Context(), h.DB, user.Username)
 	if err != nil {
 		SendError(w, "Unable to verify current password", http.StatusInternalServerError)
 		return
@@ -219,7 +219,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update password in database
-	err = database.UpdateUserPassword(h.DB, user.ID, string(hashedPassword))
+	err = database.UpdateUserPassword(r.Context(), h.DB, user.ID, string(hashedPassword))
 	if err != nil {
 		SendError(w, "Failed to update password", http.StatusInternalServerError)
 		return
@@ -296,7 +296,7 @@ func (h *AuthHandler) validateChangePassword(req *models.ChangePasswordRequest) 
 
 // isStrongPassword checks if password meets strength requirements
 func (h *AuthHandler) isStrongPassword(password string) bool {
-	if len(password) < 12 { // Changed from implicit 8+ to 12+
+	if len(password) < 12 {
 		return false
 	}
 

@@ -1,12 +1,14 @@
 package database
 
 import (
-	"database/sql"
+	"context"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/GHutch55/fragments/backend/api/v1/models"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -15,16 +17,16 @@ var (
 	ErrCircularReference = errors.New("circular folder reference not allowed")
 )
 
-func CreateFolder(db *sql.DB, folder *models.Folder) error {
-	tx, err := db.Begin()
+func CreateFolder(ctx context.Context, pool *pgxpool.Pool, folder *models.Folder) error {
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	query := `
     INSERT INTO folders(user_id, name, description, parent_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4, $5, $6)
     RETURNING id`
 
 	var description interface{}
@@ -43,9 +45,9 @@ func CreateFolder(db *sql.DB, folder *models.Folder) error {
 
 	if folder.ParentID != nil {
 		var parentUserID int64
-		err = tx.QueryRow("SELECT user_id FROM folders WHERE id = ?", *folder.ParentID).Scan(&parentUserID)
+		err = tx.QueryRow(ctx, "SELECT user_id FROM folders WHERE id = $1", *folder.ParentID).Scan(&parentUserID)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("parent folder does not exist")
 			}
 			return fmt.Errorf("failed to validate parent folder: %w", err)
@@ -55,7 +57,7 @@ func CreateFolder(db *sql.DB, folder *models.Folder) error {
 			return fmt.Errorf("parent folder does not belong to user")
 		}
 
-		if err := checkCircularReference(tx, folder.UserID, *folder.ParentID, 0); err != nil {
+		if err := checkCircularReference(ctx, tx, folder.UserID, *folder.ParentID, 0); err != nil {
 			return fmt.Errorf("circular reference detected: %w", err)
 		}
 	}
@@ -65,14 +67,14 @@ func CreateFolder(db *sql.DB, folder *models.Folder) error {
 	var nameCheckArgs []interface{}
 
 	if folder.ParentID != nil {
-		nameCheckQuery = "SELECT COUNT(*) FROM folders WHERE user_id = ? AND name = ? AND parent_id = ?"
+		nameCheckQuery = "SELECT COUNT(*) FROM folders WHERE user_id = $1 AND name = $2 AND parent_id = $3"
 		nameCheckArgs = []interface{}{folder.UserID, folder.Name, *folder.ParentID}
 	} else {
-		nameCheckQuery = "SELECT COUNT(*) FROM folders WHERE user_id = ? AND name = ? AND parent_id IS NULL"
+		nameCheckQuery = "SELECT COUNT(*) FROM folders WHERE user_id = $1 AND name = $2 AND parent_id IS NULL"
 		nameCheckArgs = []interface{}{folder.UserID, folder.Name}
 	}
 
-	err = tx.QueryRow(nameCheckQuery, nameCheckArgs...).Scan(&count)
+	err = tx.QueryRow(ctx, nameCheckQuery, nameCheckArgs...).Scan(&count)
 	if err != nil {
 		return fmt.Errorf("failed to check for duplicate folder name: %w", err)
 	}
@@ -84,7 +86,7 @@ func CreateFolder(db *sql.DB, folder *models.Folder) error {
 	now := time.Now()
 
 	var generatedID int64
-	err = tx.QueryRow(
+	err = tx.QueryRow(ctx,
 		query,
 		folder.UserID,
 		folder.Name,
@@ -97,7 +99,7 @@ func CreateFolder(db *sql.DB, folder *models.Folder) error {
 		return fmt.Errorf("failed to insert folder: %w", err)
 	}
 
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -108,17 +110,17 @@ func CreateFolder(db *sql.DB, folder *models.Folder) error {
 	return nil
 }
 
-func GetFolder(db *sql.DB, folderID int64) (*models.Folder, error) {
+func GetFolder(ctx context.Context, pool *pgxpool.Pool, folderID int64) (*models.Folder, error) {
 	query := `
 		SELECT id, user_id, name, description, parent_id, created_at, updated_at
 		FROM folders 
-		WHERE id = ?`
+		WHERE id = $1`
 
 	var folder models.Folder
-	var description sql.NullString
-	var parentID sql.NullInt64
+	var description *string
+	var parentID *int64
 
-	err := db.QueryRow(query, folderID).Scan(
+	err := pool.QueryRow(ctx, query, folderID).Scan(
 		&folder.ID,
 		&folder.UserID,
 		&folder.Name,
@@ -128,39 +130,36 @@ func GetFolder(db *sql.DB, folderID int64) (*models.Folder, error) {
 		&folder.UpdatedAt,
 	)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNoFolderError
 		}
 		return nil, fmt.Errorf("failed to get folder: %w", err)
 	}
 
-	if description.Valid {
-		folder.Description = &description.String
-	}
-	if parentID.Valid {
-		parentIDValue := parentID.Int64
-		folder.ParentID = &parentIDValue
-	}
+	folder.Description = description
+	folder.ParentID = parentID
 
 	return &folder, nil
 }
 
-func GetFolders(db *sql.DB, page, limit int, userID int64, parentID *int64) ([]models.Folder, int, error) {
+func GetFolders(ctx context.Context, pool *pgxpool.Pool, page, limit int, userID int64, parentID *int64) ([]models.Folder, int, error) {
 	offset := (page - 1) * limit
 
-	whereClause := "WHERE user_id = ?"
+	whereClause := "WHERE user_id = $1"
 	args := []interface{}{userID}
 
+	argPosition := 2
 	if parentID != nil {
-		whereClause += " AND parent_id = ?"
+		whereClause += fmt.Sprintf(" AND parent_id = $%d", argPosition)
 		args = append(args, *parentID)
+		argPosition++
 	} else {
 		whereClause += " AND parent_id IS NULL"
 	}
 
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM folders %s", whereClause)
 	var total int
-	err := db.QueryRow(countQuery, args...).Scan(&total)
+	err := pool.QueryRow(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: failed to get folder count", ErrDatabaseError)
 	}
@@ -169,10 +168,10 @@ func GetFolders(db *sql.DB, page, limit int, userID int64, parentID *int64) ([]m
 		SELECT id, user_id, name, description, parent_id, created_at, updated_at
 		FROM folders %s 
 		ORDER BY name ASC 
-		LIMIT ? OFFSET ?`, whereClause)
+		LIMIT $%d OFFSET $%d`, whereClause, argPosition, argPosition+1)
 
 	queryArgs := append(args, limit, offset)
-	rows, err := db.Query(dataQuery, queryArgs...)
+	rows, err := pool.Query(ctx, dataQuery, queryArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: failed to get folders", ErrDatabaseError)
 	}
@@ -181,8 +180,8 @@ func GetFolders(db *sql.DB, page, limit int, userID int64, parentID *int64) ([]m
 	var folders []models.Folder
 	for rows.Next() {
 		var folder models.Folder
-		var description sql.NullString
-		var parentIDVal sql.NullInt64
+		var description *string
+		var parentIDVal *int64
 
 		err := rows.Scan(
 			&folder.ID,
@@ -197,12 +196,8 @@ func GetFolders(db *sql.DB, page, limit int, userID int64, parentID *int64) ([]m
 			return nil, 0, fmt.Errorf("%w: failed to scan folder data", ErrDatabaseError)
 		}
 
-		if description.Valid {
-			folder.Description = &description.String
-		}
-		if parentIDVal.Valid {
-			folder.ParentID = &parentIDVal.Int64
-		}
+		folder.Description = description
+		folder.ParentID = parentIDVal
 
 		folders = append(folders, folder)
 	}
@@ -214,18 +209,18 @@ func GetFolders(db *sql.DB, page, limit int, userID int64, parentID *int64) ([]m
 	return folders, total, nil
 }
 
-func UpdateFolder(db *sql.DB, folderID int64, folder *models.Folder) error {
-	tx, err := db.Begin()
+func UpdateFolder(ctx context.Context, pool *pgxpool.Pool, folderID int64, folder *models.Folder) error {
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("%w: failed to start transaction", ErrDatabaseError)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	var currentUserID int64
-	var currentParentID sql.NullInt64
-	err = tx.QueryRow("SELECT user_id, parent_id FROM folders WHERE id = ?", folderID).Scan(&currentUserID, &currentParentID)
+	var currentParentID *int64
+	err = tx.QueryRow(ctx, "SELECT user_id, parent_id FROM folders WHERE id = $1", folderID).Scan(&currentUserID, &currentParentID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("folder with ID %d does not exist: %w", folderID, ErrNoFolderError)
 		}
 		return fmt.Errorf("%w: failed to check folder existence", ErrDatabaseError)
@@ -233,9 +228,9 @@ func UpdateFolder(db *sql.DB, folderID int64, folder *models.Folder) error {
 
 	if folder.ParentID != nil {
 		var parentUserID int64
-		err = tx.QueryRow("SELECT user_id FROM folders WHERE id = ?", *folder.ParentID).Scan(&parentUserID)
+		err = tx.QueryRow(ctx, "SELECT user_id FROM folders WHERE id = $1", *folder.ParentID).Scan(&parentUserID)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("parent folder does not exist")
 			}
 			return fmt.Errorf("failed to validate parent folder: %w", err)
@@ -250,12 +245,12 @@ func UpdateFolder(db *sql.DB, folderID int64, folder *models.Folder) error {
 		}
 
 		needsCircularCheck := true
-		if currentParentID.Valid && currentParentID.Int64 == *folder.ParentID {
+		if currentParentID != nil && *currentParentID == *folder.ParentID {
 			needsCircularCheck = false // Parent isn't changing
 		}
 
 		if needsCircularCheck {
-			if err := checkCircularReferenceForUpdate(tx, folder.UserID, folderID, *folder.ParentID, 0); err != nil {
+			if err := checkCircularReferenceForUpdate(ctx, tx, folder.UserID, folderID, *folder.ParentID, 0); err != nil {
 				return fmt.Errorf("circular reference detected: %w", err)
 			}
 		}
@@ -266,14 +261,14 @@ func UpdateFolder(db *sql.DB, folderID int64, folder *models.Folder) error {
 	var nameCheckArgs []interface{}
 
 	if folder.ParentID != nil {
-		nameCheckQuery = "SELECT COUNT(*) FROM folders WHERE user_id = ? AND name = ? AND parent_id = ? AND id != ?"
+		nameCheckQuery = "SELECT COUNT(*) FROM folders WHERE user_id = $1 AND name = $2 AND parent_id = $3 AND id != $4"
 		nameCheckArgs = []interface{}{folder.UserID, folder.Name, *folder.ParentID, folderID}
 	} else {
-		nameCheckQuery = "SELECT COUNT(*) FROM folders WHERE user_id = ? AND name = ? AND parent_id IS NULL AND id != ?"
+		nameCheckQuery = "SELECT COUNT(*) FROM folders WHERE user_id = $1 AND name = $2 AND parent_id IS NULL AND id != $3"
 		nameCheckArgs = []interface{}{folder.UserID, folder.Name, folderID}
 	}
 
-	err = tx.QueryRow(nameCheckQuery, nameCheckArgs...).Scan(&count)
+	err = tx.QueryRow(ctx, nameCheckQuery, nameCheckArgs...).Scan(&count)
 	if err != nil {
 		return fmt.Errorf("%w: failed to check for duplicate folder name", ErrDatabaseError)
 	}
@@ -300,10 +295,10 @@ func UpdateFolder(db *sql.DB, folderID int64, folder *models.Folder) error {
 
 	updateQuery := `
 		UPDATE folders 
-		SET name = ?, description = ?, parent_id = ?, updated_at = ?
-		WHERE id = ?`
+		SET name = $1, description = $2, parent_id = $3, updated_at = $4
+		WHERE id = $5`
 
-	result, err := tx.Exec(updateQuery,
+	result, err := tx.Exec(ctx, updateQuery,
 		folder.Name,
 		descriptionValue,
 		parentIDValue,
@@ -314,15 +309,12 @@ func UpdateFolder(db *sql.DB, folderID int64, folder *models.Folder) error {
 		return fmt.Errorf("%w: failed to update folder", ErrDatabaseError)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("%w: failed to verify update", ErrDatabaseError)
-	}
+	rowsAffected := result.RowsAffected()
 	if rowsAffected == 0 {
 		return fmt.Errorf("folder with ID %d does not exist: %w", folderID, ErrNoFolderError)
 	}
 
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("%w: failed to commit update", ErrDatabaseError)
 	}
 
@@ -333,15 +325,15 @@ func UpdateFolder(db *sql.DB, folderID int64, folder *models.Folder) error {
 	return nil
 }
 
-func DeleteFolder(db *sql.DB, folderID int64) error {
-	tx, err := db.Begin()
+func DeleteFolder(ctx context.Context, pool *pgxpool.Pool, folderID int64) error {
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("%w: failed to start transaction", ErrDatabaseError)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
 	var exists bool
-	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM folders WHERE id = ?)", folderID).Scan(&exists)
+	err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM folders WHERE id = $1)", folderID).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("%w: failed to check folder existence", ErrDatabaseError)
 	}
@@ -351,7 +343,7 @@ func DeleteFolder(db *sql.DB, folderID int64) error {
 	}
 
 	var childCount int
-	err = tx.QueryRow("SELECT COUNT(*) FROM folders WHERE parent_id = ?", folderID).Scan(&childCount)
+	err = tx.QueryRow(ctx, "SELECT COUNT(*) FROM folders WHERE parent_id = $1", folderID).Scan(&childCount)
 	if err != nil {
 		return fmt.Errorf("%w: failed to check for child folders", ErrDatabaseError)
 	}
@@ -361,63 +353,59 @@ func DeleteFolder(db *sql.DB, folderID int64) error {
 	}
 
 	var snippetCount int
-	err = tx.QueryRow("SELECT COUNT(*) FROM snippets WHERE folder_id = ?", folderID).Scan(&snippetCount)
+	err = tx.QueryRow(ctx, "SELECT COUNT(*) FROM snippets WHERE folder_id = $1", folderID).Scan(&snippetCount)
 	if err != nil {
 		return fmt.Errorf("%w: failed to check for snippets in folder", ErrDatabaseError)
 	}
 
 	// Move snippets to root before deleting folder
 	if snippetCount > 0 {
-		_, err = tx.Exec("UPDATE snippets SET folder_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE folder_id = ?", folderID)
+		_, err = tx.Exec(ctx, "UPDATE snippets SET folder_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE folder_id = $1", folderID)
 		if err != nil {
 			return fmt.Errorf("%w: failed to move snippets to root", ErrDatabaseError)
 		}
 	}
 
-	result, err := tx.Exec("DELETE FROM folders WHERE id = ?", folderID)
+	result, err := tx.Exec(ctx, "DELETE FROM folders WHERE id = $1", folderID)
 	if err != nil {
 		return fmt.Errorf("%w: failed to delete folder", ErrDatabaseError)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("%w: failed to verify deletion", ErrDatabaseError)
-	}
-
+	rowsAffected := result.RowsAffected()
 	if rowsAffected == 0 {
 		return fmt.Errorf("folder with ID %d does not exist: %w", folderID, ErrNoFolderError)
 	}
 
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("%w: failed to commit deletion", ErrDatabaseError)
 	}
 
 	return nil
 }
 
-func checkCircularReference(tx *sql.Tx, userID int64, parentID int64, depth int) error {
+func checkCircularReference(ctx context.Context, tx pgx.Tx, userID int64, parentID int64, depth int) error {
 	// Prevent infinite recursion
 	if depth > 50 {
 		return fmt.Errorf("maximum folder depth exceeded")
 	}
 
-	var grandParentID sql.NullInt64
-	err := tx.QueryRow("SELECT parent_id FROM folders WHERE id = ? AND user_id = ?", parentID, userID).Scan(&grandParentID)
+	var grandParentID *int64
+	err := tx.QueryRow(ctx, "SELECT parent_id FROM folders WHERE id = $1 AND user_id = $2", parentID, userID).Scan(&grandParentID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return fmt.Errorf("failed to check parent folder: %w", err)
 	}
 
-	if !grandParentID.Valid {
+	if grandParentID == nil {
 		return nil
 	}
 
-	return checkCircularReference(tx, userID, grandParentID.Int64, depth+1)
+	return checkCircularReference(ctx, tx, userID, *grandParentID, depth+1)
 }
 
-func checkCircularReferenceForUpdate(tx *sql.Tx, userID int64, folderID int64, newParentID int64, depth int) error {
+func checkCircularReferenceForUpdate(ctx context.Context, tx pgx.Tx, userID int64, folderID int64, newParentID int64, depth int) error {
 	// Prevent infinite recursion
 	if depth > 50 {
 		return fmt.Errorf("maximum folder depth exceeded")
@@ -427,22 +415,22 @@ func checkCircularReferenceForUpdate(tx *sql.Tx, userID int64, folderID int64, n
 		return fmt.Errorf("folder cannot be its own parent")
 	}
 
-	var grandParentID sql.NullInt64
-	err := tx.QueryRow("SELECT parent_id FROM folders WHERE id = ? AND user_id = ?", newParentID, userID).Scan(&grandParentID)
+	var grandParentID *int64
+	err := tx.QueryRow(ctx, "SELECT parent_id FROM folders WHERE id = $1 AND user_id = $2", newParentID, userID).Scan(&grandParentID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return fmt.Errorf("failed to check parent folder: %w", err)
 	}
 
-	if !grandParentID.Valid {
+	if grandParentID == nil {
 		return nil
 	}
 
-	if grandParentID.Int64 == folderID {
+	if *grandParentID == folderID {
 		return fmt.Errorf("circular reference detected")
 	}
 
-	return checkCircularReferenceForUpdate(tx, userID, folderID, grandParentID.Int64, depth+1)
+	return checkCircularReferenceForUpdate(ctx, tx, userID, folderID, *grandParentID, depth+1)
 }
