@@ -32,10 +32,8 @@ func main() {
 	if len(jwtSecret) < 32 {
 		log.Fatal("JWT_SECRET must be at least 32 characters long")
 	}
-	log.Println("3. JWT secret validated")
 
-	log.Printf("4. Attempting to connect to database at: %s", cfg.DatabasePath)
-	pool, err := database.Connect(cfg.DatabasePath)
+	pool, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
