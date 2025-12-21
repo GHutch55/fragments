@@ -25,6 +25,7 @@ import { useFolders } from "@/hooks/useFolders";
 import type { Folder as FolderType, Snippet } from "@/api/types";
 
 interface FileTreeProps {
+  searchQuery: string;
   onCreateFolder?: () => void;
   onCreateSnippet?: () => void;
 }
