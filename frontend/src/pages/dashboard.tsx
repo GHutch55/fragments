@@ -34,8 +34,8 @@ export function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const handleLogout = () => {
-    localStorage.removeItem("authToken");
     fileTree?.reset();
+    localStorage.removeItem("authToken");
     navigate("/login");
   };
 
