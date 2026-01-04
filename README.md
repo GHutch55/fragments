@@ -1,49 +1,81 @@
-# ![logo full](https://raw.githubusercontent.com/GHutch55/fragments/1c78300668f8fa217e017d9c2d8bf1aa48c13b18/frontend/src/assets/logoFull.svg)
+# ![Fragments Logo](https://raw.githubusercontent.com/GHutch55/fragments/1c78300668f8fa217e017d9c2d8bf1aa48c13b18/frontend/src/assets/logoFull.svg)
 
-A modern code snippet manager designed for developers who value organization and quick access to their code libraries.
+A full-stack web application that enables developers to securely store, organize, and efficiently search personal code snippets.
 
-## The Problem
+[Live Demo:](https://fragments-7gas.onrender.com/) 
 
-As developers, we constantly Google the same patterns, copy code from old projects, and struggle to remember that perfect regex from last month. Existing solutions like GitHub Gists lack organization, and IDE snippets are locked to one editor.
+---
 
-## The Solution
+## Overview
 
-Fragments provides a fast, searchable library for your code snippets with smart tagging, folder organization, and a clean web interface. Think of it as your personal Stack Overflow that learns from your actual code patterns.
+Developers often reuse common patterns, utility functions, and reference snippets across projects. These snippets are frequently scattered across old repositories, notes, or browser bookmarks, making them difficult to find when needed.
 
-## Features
+Fragments is a personal code snippet manager designed to centralize these patterns in a single, searchable web application. The project was built to practice backend system design, database modeling, and modern frontend development, with an emphasis on correctness, security, and performance.
 
-- 🔍 **Full-text search** - Find snippets instantly across titles, content, and tags
-- 🏷️ **Smart tagging** - Organize with flexible tagging system and auto-suggestions
-- 📁 **Folder organization** - Hierarchical structure for logical grouping
-- 🎨 **Syntax highlighting** - Support for multiple programming languages
-- ⚡ **Fast performance** - Built with Go for lightning-fast responses
-- 🌐 **Clean web interface** - Intuitive UI built with modern web technologies
+---
+
+## Core Features
+
+- Full-text search using PostgreSQL for efficient lookup across snippet titles and content
+- Hierarchical folder organization for logical grouping of snippets
+- Secure multi-user authentication with complete data isolation
+- RESTful API with ownership validation on all protected endpoints
+- Code editor with syntax highlighting for 12+ programming languages
+- Responsive web interface built with React and TypeScript
+
+---
 
 ## Tech Stack
 
-- **Backend**: Go with Chi router and SQLite
-- **Frontend**: React + TypeScript (planned)
+Backend:
 
-### Project Structure
-```
-fragments/
-├── backend/           # Go backend server
-├── frontend/           # React frontend (in progress)
-```
+- Go (Chi Router)
+- PostgreSQL (Supabase)
+- JWT-based authentication
+- bcrypt password hashing
+- Middleware for validation, CORS, and rate limiting
 
-## Roadmap
+Frontend:
 
-- [x] Basic server setup
-- [x] Database schema and models
-- [x] JWT-Based authentication
-- [x] REST API endpoints
-- [x] Search functionality
-- [x] Web interface
-- [x] Tag management
+- React
+- TypeScript
+- Monaco Editor for code editing and syntax highlighting
+- React Context for state management
+
+Infrastructure:
+
+- Database: PostgreSQL (Supabase)
+- Deployment: Render
+
+---
+
+## Engineering Highlights
+
+- Designed and implemented 20+ RESTful API endpoints following standard REST conventions
+- Enforced authentication, authorization, and ownership checks on all CRUD operations
+- Used transactions to ensure correctness for multi-step database operations
+- Structured backend code with clear separation between routing, business logic, and data access
+- Focused on query efficiency and low-latency backend responses
+
+---
+
+## Purpose
+
+Fragments was built as a backend-focused portfolio project to demonstrate practical software engineering skills relevant to internship and early-career roles, including:
+
+- Designing and building RESTful services in Go
+- Implementing authentication and authorization correctly
+- Working with relational databases and SQL
+- Reasoning about data integrity, security, and performance
+- Integrating a typed frontend with a backend API
+
+---
 
 ## Contributing
 
-This is currently a personal + learning project, but suggestions and feedback are welcome! Please open an issue to discuss any changes.
+This is currently a personal project, but feedback and suggestions are welcome. Feel free to open an issue to discuss improvements.
+
+---
 
 ## License
 
