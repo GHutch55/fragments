@@ -14,6 +14,12 @@ Fragments is a personal code snippet manager designed to centralize these patter
 
 ---
 
+## Note
+
+Due to me having to host on the free version of Render, the first usage in a few minutes might take significantly longer than normal due to it having to spin up again.
+
+---
+
 ## Core Features
 
 - Full-text search using PostgreSQL for efficient lookup across snippet titles and content
