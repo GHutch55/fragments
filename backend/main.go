@@ -46,6 +46,7 @@ func main() {
 	snippetHandler := &handlers.SnippetHandler{DB: pool}
 	folderHandler := &handlers.FolderHandler{DB: pool}
 	authHandler := handlers.NewAuthHandler(pool, authMiddleware)
+	healthHandler := &handlers.HealthyHandler{DB: pool}
 
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Logger)
@@ -63,7 +64,7 @@ func main() {
 	}))
 
 	r.Get("/", handlers.HomeHandler)
-	r.Get("/health", handlers.HealthHandler)
+	r.Get("/health", healthHandler.HealthHandler)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/", handlers.ApiInfoHandler)
