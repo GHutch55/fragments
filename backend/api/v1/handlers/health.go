@@ -22,7 +22,11 @@ func (h *HealthyHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if h.DB == nil {
-		http.Error(w, "database pool not initialized", http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(healthResponse{
+			Status:  "error",
+			Message: "database pool not initialized",
+		})
 		return
 	}
 

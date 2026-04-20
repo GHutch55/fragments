@@ -262,4 +262,3 @@ func (h *UserHandler) validatePassword(password string) error {
 
 	return nil
 }
-

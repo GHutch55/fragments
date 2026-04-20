@@ -217,6 +217,11 @@ func (am *AuthMiddleware) sendError(w http.ResponseWriter, message string, statu
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		// In rare cases, fall back to plain text
-		http.Error(w, fmt.Sprintf(`{"error": "Internal Server Error", "message": "%v"}`, err), http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(ErrorResponse{
+			Error:   "Internal Server Error",
+			Message: err.Error(),
+		})
 	}
 }

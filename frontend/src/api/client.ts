@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8080/api/v1";
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:8080/api/v1";
 
 const getAuthToken = (): string | null => {
   return localStorage.getItem("authToken");
@@ -26,18 +27,22 @@ export async function apiRequest<T>(
 
   const response = await fetch(url, config);
 
+  const text = await response.text();
+
+  let data = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    throw new Error(`Non-JSON response from server: ${text}`);
+  }
+
   if (response.status === 204) {
     return { success: true } as T;
   }
 
-  const data = (await response.json()) as T;
-
   if (!response.ok) {
-    throw new Error(
-      (data as { message?: string; error?: string }).message ||
-      (data as { message?: string; error?: string }).error ||
-      "Request failed",
-    );
+    throw new Error(data?.message || data?.error || "Request failed");
   }
 
   return data;

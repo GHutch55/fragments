@@ -269,7 +269,7 @@ func GetUserByUsername(ctx context.Context, pool *pgxpool.Pool, username string)
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("user not found")
+			return nil, ErrNoUserError
 		}
 		fmt.Printf("Database error retrieving user by username: %v\n", err)
 		return nil, fmt.Errorf("%w: failed to retrieve user", ErrDatabaseError)
