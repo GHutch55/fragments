@@ -2,7 +2,7 @@
 
 A full-stack web application that enables developers to securely store, organize, and efficiently search personal code snippets.
 
-[Live Demo:](https://fragments-7gas.onrender.com/) 
+[Live Site!](https://fragments-7gas.onrender.com/) 
 
 ---
 
@@ -16,7 +16,7 @@ Fragments is a personal code snippet manager designed to centralize these patter
 
 ## Note
 
-Due to me having to host on the free version of Render, the first usage in a few minutes might take significantly longer than normal due to it having to spin up again.
+Due to me having to host on the free version of Render, the first use in a few minutes might take significantly longer than normal because it has to spin up again.
 
 ---
 
